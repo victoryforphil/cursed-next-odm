@@ -162,7 +162,7 @@ export function MapView({
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.2s;
+        transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
       `;
 
       // Add heading indicator if available
@@ -175,19 +175,17 @@ export function MapView({
           border-right: 4px solid transparent;
           border-bottom: 8px solid white;
           transform: rotate(${img.exif.heading}deg);
-          transform-origin: center;
+          transform-origin: center center;
         `;
         el.appendChild(arrow);
       }
 
       el.addEventListener('mouseenter', () => {
-        el.style.transform = 'scale(1.2)';
-        el.style.zIndex = '100';
+        el.style.boxShadow = '0 4px 8px rgba(0,0,0,0.4)';
       });
 
       el.addEventListener('mouseleave', () => {
-        el.style.transform = 'scale(1)';
-        el.style.zIndex = '1';
+        el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
       });
 
       el.addEventListener('click', () => {
