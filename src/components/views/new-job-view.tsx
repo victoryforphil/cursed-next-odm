@@ -166,6 +166,9 @@ export function NewJobView({ odmOptions, isConnected, onCreateTask, onTaskCreate
     setIsCreating(true);
     setOverallProgress(0);
     
+    // Create file index to ImageFile ID mapping
+    const fileIndexToId = files.map(f => fileIdMap.get(f)!);
+    
     // Initialize upload status for all files
     const initialStatus = new Map<string, { status: UploadStatus; progress: number }>();
     selectedFiles.forEach((imageFile) => {
@@ -179,10 +182,14 @@ export function NewJobView({ odmOptions, isConnected, onCreateTask, onTaskCreate
       );
       const name = taskName.trim() || `Task ${new Date().toLocaleString()}`;
       
-      // Track upload progress
-      const updateFileProgress = (fileId: string, progress: number, status: UploadStatus) => {
+      // Track upload progress - maps file index to ImageFile ID
+      const handleFileProgress = (fileIndex: number, progress: number) => {
+        const fileId = fileIndexToId[fileIndex];
+        if (!fileId) return;
+        
         setUploadStatus((prev) => {
           const newMap = new Map(prev);
+          const status: UploadStatus = progress === 0 ? 'pending' : progress < 100 ? 'uploading' : 'uploaded';
           newMap.set(fileId, { status, progress });
           
           // Calculate overall progress
@@ -195,44 +202,26 @@ export function NewJobView({ odmOptions, isConnected, onCreateTask, onTaskCreate
           return newMap;
         });
       };
-
-      // Simulate per-file upload progress
-      const uploadWithProgress = async () => {
-        // Mark all as uploading
-        selectedFiles.forEach((imageFile) => {
-          updateFileProgress(imageFile.id, 0, 'uploading');
-        });
-
-        // Simulate chunked upload with progress
-        const chunkSize = 5;
-        for (let i = 0; i < files.length; i += chunkSize) {
-          const chunk = files.slice(i, i + chunkSize);
-          const chunkIds = chunk.map(f => fileIdMap.get(f)!);
-          
-          // Update progress for this chunk
-          chunkIds.forEach((id) => {
-            updateFileProgress(id, 50, 'uploading');
-          });
-          
-          // Small delay to show progress
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        // Mark all as uploaded
-        selectedFiles.forEach((imageFile) => {
-          updateFileProgress(imageFile.id, 100, 'uploaded');
-        });
-      };
-
-      // Start upload progress simulation
-      uploadWithProgress();
       
-      const taskId = await onCreateTask(files, name, options);
+      // Mark all as uploading initially
+      selectedFiles.forEach((imageFile) => {
+        setUploadStatus((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(imageFile.id, { status: 'uploading', progress: 0 });
+          return newMap;
+        });
+      });
+      
+      const taskId = await onCreateTask(files, name, options, handleFileProgress);
       
       if (taskId) {
         // Mark all as uploaded
         selectedFiles.forEach((imageFile) => {
-          updateFileProgress(imageFile.id, 100, 'uploaded');
+          setUploadStatus((prev) => {
+            const newMap = new Map(prev);
+            newMap.set(imageFile.id, { status: 'uploaded', progress: 100 });
+            return newMap;
+          });
         });
         setOverallProgress(100);
         

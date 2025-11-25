@@ -36,7 +36,8 @@ interface UseNodeODMReturn {
   createTask: (
     files: File[],
     name: string,
-    options?: TaskOption[]
+    options?: TaskOption[],
+    onFileProgress?: (fileIndex: number, progress: number) => void
   ) => Promise<string | null>;
   cancelTask: (uuid: string) => Promise<boolean>;
   removeTask: (uuid: string) => Promise<boolean>;
@@ -155,7 +156,8 @@ export function useNodeODM(options: UseNodeODMOptions = {}): UseNodeODMReturn {
     async (
       files: File[],
       name: string,
-      taskOptions?: TaskOption[]
+      taskOptions?: TaskOption[],
+      onFileProgress?: (fileIndex: number, progress: number) => void
     ): Promise<string | null> => {
       if (!isConnected) return null;
 
@@ -174,13 +176,33 @@ export function useNodeODM(options: UseNodeODMOptions = {}): UseNodeODMReturn {
           const uuid = initResult.uuid;
           const chunkSize = 5; // Upload 5 files at a time
           let uploaded = 0;
+          const totalFiles = files.length;
 
-          // Upload in chunks
+          // Upload in chunks with progress tracking
           for (let i = 0; i < files.length; i += chunkSize) {
             const chunk = files.slice(i, i + chunkSize);
-            await clientRef.current.uploadToTask(uuid, chunk);
+            const chunkStartIndex = i;
+            
+            await clientRef.current.uploadToTask(uuid, chunk, (chunkProgress) => {
+              // Calculate progress for each file in this chunk
+              chunk.forEach((_, chunkIdx) => {
+                const fileIndex = chunkStartIndex + chunkIdx;
+                const fileProgress = chunkProgress / chunk.length;
+                onFileProgress?.(fileIndex, fileProgress);
+              });
+              
+              // Update overall progress
+              const overallProgress = ((uploaded + (chunkProgress / 100) * chunk.length) / totalFiles) * 100;
+              setUploadProgress(overallProgress);
+            });
+            
             uploaded += chunk.length;
-            setUploadProgress((uploaded / files.length) * 100);
+            // Mark chunk files as complete
+            chunk.forEach((_, chunkIdx) => {
+              const fileIndex = chunkStartIndex + chunkIdx;
+              onFileProgress?.(fileIndex, 100);
+            });
+            setUploadProgress((uploaded / totalFiles) * 100);
           }
 
           // Commit task
@@ -194,14 +216,29 @@ export function useNodeODM(options: UseNodeODMOptions = {}): UseNodeODMReturn {
           
           return uuid;
         } else {
-          // Simple upload for small tasks
-          const result = await clientRef.current.createTask(files, {
-            name,
-            options: taskOptions,
-          });
+          // Simple upload for small tasks with progress
+          const result = await clientRef.current.createTask(
+            files,
+            {
+              name,
+              options: taskOptions,
+            },
+            (progress) => {
+              setUploadProgress(progress);
+              // Distribute progress evenly across files
+              files.forEach((_, index) => {
+                onFileProgress?.(index, progress);
+              });
+            }
+          );
 
           setIsUploading(false);
           setUploadProgress(100);
+          
+          // Mark all files as complete
+          files.forEach((_, index) => {
+            onFileProgress?.(index, 100);
+          });
           
           // Refresh tasks
           await refreshTasks();

@@ -131,7 +131,11 @@ export class NodeODMClient {
     return this.request<string[]>(`/task/${uuid}/output`, undefined, { line: line.toString() });
   }
 
-  async createTask(files: File[], params?: CreateTaskParams): Promise<NewTaskResponse> {
+  async createTask(
+    files: File[], 
+    params?: CreateTaskParams,
+    onProgress?: (progress: number) => void
+  ): Promise<NewTaskResponse> {
     const formData = new FormData();
     
     files.forEach((file) => {
@@ -158,9 +162,62 @@ export class NodeODMClient {
       formData.append('outputs', JSON.stringify(params.outputs));
     }
 
+    if (onProgress) {
+      return this.requestWithProgress<NewTaskResponse>('/task/new', formData, onProgress);
+    }
+
     return this.request<NewTaskResponse>('/task/new', {
       method: 'POST',
       body: formData,
+    });
+  }
+
+  private async requestWithProgress<T>(
+    path: string,
+    formData: FormData,
+    onProgress: (progress: number) => void
+  ): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const url = this.getUrl(path);
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const progress = (e.loaded / e.total) * 100;
+          onProgress(progress);
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch (error) {
+            reject(new Error('Invalid JSON response'));
+          }
+        } else {
+          try {
+            const error = JSON.parse(xhr.responseText);
+            reject(new Error(error.error || `HTTP ${xhr.status}`));
+          } catch {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error'));
+      });
+
+      const finalUrl = this.token ? (() => {
+        const urlObj = new URL(url);
+        urlObj.searchParams.set('token', this.token);
+        return urlObj.toString();
+      })() : url;
+      
+      xhr.open('POST', finalUrl);
+      xhr.send(formData);
     });
   }
 
@@ -196,11 +253,19 @@ export class NodeODMClient {
     });
   }
 
-  async uploadToTask(uuid: string, files: File[]): Promise<ApiResponse> {
+  async uploadToTask(
+    uuid: string, 
+    files: File[],
+    onProgress?: (progress: number) => void
+  ): Promise<ApiResponse> {
     const formData = new FormData();
     files.forEach((file) => {
       formData.append('images', file);
     });
+
+    if (onProgress) {
+      return this.requestWithProgress<ApiResponse>(`/task/new/upload/${uuid}`, formData, onProgress);
+    }
 
     return this.request<ApiResponse>(`/task/new/upload/${uuid}`, {
       method: 'POST',
