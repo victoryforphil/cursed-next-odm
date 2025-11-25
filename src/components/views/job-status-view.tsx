@@ -14,6 +14,9 @@ import {
   Box,
   MoreVertical,
   Search,
+  ChevronDown,
+  ChevronUp,
+  Terminal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -75,7 +78,8 @@ export function JobStatusView({
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
   const [taskLogs, setTaskLogs] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewType, setViewType] = useState<'pointcloud' | 'orthomosaic'>('pointcloud');
+  const [viewType, setViewType] = useState<'pointcloud' | 'orthomosaic' | 'logs'>('logs');
+  const [jobsExpanded, setJobsExpanded] = useState(true);
 
   const selectedTask = tasks.find(t => t.uuid === selectedTaskId);
 
@@ -127,49 +131,67 @@ export function JobStatusView({
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {/* Left: Task List */}
+      {/* Left: Sidebar with Job Status */}
       <div className="w-[350px] border-r flex flex-col bg-card">
-        <div className="p-4 border-b flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider">Jobs</h2>
-            <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
-              {tasks.length} total
-            </p>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onRefresh}
-            disabled={isLoading}
-            className="h-8 w-8"
+        {/* Job Status Collapsible Section */}
+        <div className="border-b">
+          <button
+            onClick={() => setJobsExpanded(!jobsExpanded)}
+            className="w-full p-4 flex items-center justify-between hover:bg-accent transition-colors"
           >
-            <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
-          </Button>
-        </div>
-
-        {/* Search */}
-        <div className="p-2 border-b">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input
-              placeholder="Search jobs..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 h-8 text-xs bg-input border-border"
-            />
-          </div>
-        </div>
-
-        {/* Task List */}
-        <div className="flex-1 overflow-y-auto">
-          {filteredTasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <Activity className="h-12 w-12 mb-4 opacity-30" />
-              <p className="text-xs uppercase tracking-wider">No jobs found</p>
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              <h2 className="text-sm font-bold uppercase tracking-wider">Job Status</h2>
+              <Badge variant="outline" className="text-[10px]">
+                {tasks.length}
+              </Badge>
             </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {filteredTasks.map((task) => {
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRefresh();
+                }}
+                disabled={isLoading}
+                className="h-6 w-6"
+              >
+                <RefreshCw className={cn('h-3 w-3', isLoading && 'animate-spin')} />
+              </Button>
+              {jobsExpanded ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </div>
+          </button>
+
+          {jobsExpanded && (
+            <>
+              {/* Search */}
+              <div className="p-2 border-t">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                  <Input
+                    placeholder="Search jobs..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8 h-8 text-xs bg-input border-border"
+                  />
+                </div>
+              </div>
+
+              {/* Task List */}
+              <div className="max-h-[60vh] overflow-y-auto">
+                {filteredTasks.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <Activity className="h-12 w-12 mb-4 opacity-30" />
+                    <p className="text-xs uppercase tracking-wider">No jobs found</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {filteredTasks.map((task) => {
                 const status = statusConfig[task.status.code];
                 const StatusIcon = status.icon;
                 const isRunning = task.status.code === 20;
@@ -249,35 +271,43 @@ export function JobStatusView({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
+                    </div>
+                  );
+                })}
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* Center: Console Output */}
-      <div className="flex-1 flex flex-col bg-black">
-        <LogViewer
-          logs={taskLogs}
-          title={selectedTask?.name || 'Console Output'}
-          className="h-full"
-        />
-      </div>
-
-      {/* Right: Point Cloud / Orthomosaic / Results */}
-      <div className="w-[400px] border-l flex flex-col bg-card">
+      {/* Main Content Area: Tabs for Point Cloud / Orthomosaic / Logs */}
+      <div className="flex-1 flex flex-col bg-card">
         <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
-              <Box className="h-4 w-4" />
-              Results
+              {viewType === 'logs' && <Terminal className="h-4 w-4" />}
+              {viewType === 'pointcloud' && <Box className="h-4 w-4" />}
+              {viewType === 'orthomosaic' && <Box className="h-4 w-4" />}
+              {selectedTask?.name || 'Select a job'}
             </h2>
           </div>
           
           {/* View type tabs */}
           <div className="flex gap-1">
+            <button
+              onClick={() => setViewType('logs')}
+              className={cn(
+                'flex-1 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors',
+                'border border-border',
+                viewType === 'logs'
+                  ? 'bg-white text-black border-white'
+                  : 'bg-transparent hover:bg-accent'
+              )}
+            >
+              Logs
+            </button>
             <button
               onClick={() => setViewType('pointcloud')}
               className={cn(
@@ -306,7 +336,15 @@ export function JobStatusView({
         </div>
 
         <div className="flex-1 overflow-hidden">
-          {viewType === 'pointcloud' ? (
+          {viewType === 'logs' ? (
+            <div className="h-full bg-black">
+              <LogViewer
+                logs={taskLogs}
+                title={selectedTask?.name || 'Console Output'}
+                className="h-full"
+              />
+            </div>
+          ) : viewType === 'pointcloud' ? (
             <PointCloudViewer
               taskId={selectedTask?.status.code === 40 ? selectedTaskId : undefined}
               baseUrl={baseUrl}
@@ -321,7 +359,7 @@ export function JobStatusView({
           )}
         </div>
 
-        {selectedTask?.status.code === 40 && (
+        {selectedTask?.status.code === 40 && viewType !== 'logs' && (
           <div className="p-4 border-t">
             <Button
               className="w-full bg-white text-black hover:bg-gray-200 uppercase tracking-wider"
