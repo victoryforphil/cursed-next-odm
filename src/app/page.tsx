@@ -9,8 +9,6 @@ import {
   WifiOff,
   Server,
   ChevronRight,
-  ChevronDown,
-  ChevronUp,
   Clock,
   CheckCircle2,
   XCircle,
@@ -85,7 +83,6 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeView, setActiveView] = useState<View>('new-job');
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
-  const [jobsExpanded, setJobsExpanded] = useState(true);
   const [jobSearchQuery, setJobSearchQuery] = useState('');
 
   // Count running tasks
@@ -195,7 +192,7 @@ export default function Home() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-2">
+        <nav className="flex-1 p-2 overflow-y-auto min-h-0">
           <button
             onClick={() => setActiveView('new-job')}
             className={cn(
@@ -214,75 +211,41 @@ export default function Home() {
             )} />
           </button>
 
-          <button
-            onClick={() => setActiveView('job-status')}
-            className={cn(
-              'w-full flex items-center gap-3 px-3 py-3 text-sm uppercase tracking-wider transition-colors',
-              'hover:bg-accent',
-              activeView === 'job-status' 
-                ? 'bg-accent text-white border-l-2 border-white' 
-                : 'text-muted-foreground'
-            )}
-          >
-            <Activity className="h-4 w-4" />
-            Job Status
-            {(runningTasks > 0 || queuedTasks > 0) && (
-              <Badge 
-                variant="outline" 
-                className={cn(
-                  'ml-auto text-[10px] border-0',
-                  runningTasks > 0 ? 'bg-[#00ccff]/20 text-[#00ccff]' : 'bg-[#ffcc00]/20 text-[#ffcc00]'
-                )}
-              >
-                {runningTasks > 0 ? runningTasks : queuedTasks}
-              </Badge>
-            )}
-            <ChevronRight className={cn(
-              'h-4 w-4 transition-transform',
-              activeView === 'job-status' && 'rotate-90'
-            )} />
-          </button>
-        </nav>
-
-        {/* Job Status List - Only show when Job Status view is active */}
-        {activeView === 'job-status' && (
-          <div className="border-t flex flex-col flex-1 min-h-0">
+          <div>
             <button
-              onClick={() => setJobsExpanded(!jobsExpanded)}
-              className="w-full p-3 flex items-center justify-between hover:bg-accent transition-colors border-b"
+              onClick={() => setActiveView('job-status')}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-3 text-sm uppercase tracking-wider transition-colors',
+                'hover:bg-accent',
+                activeView === 'job-status' 
+                  ? 'bg-accent text-white border-l-2 border-white' 
+                  : 'text-muted-foreground'
+              )}
             >
-              <div className="flex items-center gap-2">
-                <Activity className="h-3 w-3" />
-                <span className="text-xs font-bold uppercase tracking-wider">Jobs</span>
-                <Badge variant="outline" className="text-[10px]">
-                  {tasks.length}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    refreshTasks();
-                  }}
-                  disabled={isLoadingTasks}
-                  className="h-5 w-5"
+              <Activity className="h-4 w-4" />
+              Job Status
+              {(runningTasks > 0 || queuedTasks > 0) && (
+                <Badge 
+                  variant="outline" 
+                  className={cn(
+                    'ml-auto text-[10px] border-0',
+                    runningTasks > 0 ? 'bg-[#00ccff]/20 text-[#00ccff]' : 'bg-[#ffcc00]/20 text-[#ffcc00]'
+                  )}
                 >
-                  <RefreshCw className={cn('h-3 w-3', isLoadingTasks && 'animate-spin')} />
-                </Button>
-                {jobsExpanded ? (
-                  <ChevronUp className="h-3 w-3 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                )}
-              </div>
+                  {runningTasks > 0 ? runningTasks : queuedTasks}
+                </Badge>
+              )}
+              <ChevronRight className={cn(
+                'h-4 w-4 transition-transform',
+                activeView === 'job-status' && 'rotate-90'
+              )} />
             </button>
 
-            {jobsExpanded && (
-              <>
+            {/* Job List as nested children */}
+            {activeView === 'job-status' && (
+              <div className="pl-4 pr-2 pb-2">
                 {/* Search */}
-                <div className="p-2 border-b">
+                <div className="mb-2">
                   <div className="relative">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                     <Input
@@ -294,108 +257,119 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Task List */}
-                <div className="flex-1 overflow-y-auto min-h-0">
-                  {filteredTasks.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                      <Activity className="h-8 w-8 mb-2 opacity-30" />
-                      <p className="text-[10px] uppercase tracking-wider">No jobs found</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-border">
-                      {filteredTasks.map((task) => {
-                        const status = statusConfig[task.status.code];
-                        const StatusIcon = status.icon;
-                        const isRunning = task.status.code === 20;
-                        const isSelected = task.uuid === selectedTaskId;
-
-                        return (
-                          <div
-                            key={task.uuid}
-                            onClick={() => setSelectedTaskId(task.uuid)}
-                            className={cn(
-                              'p-2 cursor-pointer transition-colors',
-                              'hover:bg-accent',
-                              isSelected && 'bg-accent border-l-2 border-white'
-                            )}
-                          >
-                            <div className="flex items-start gap-2">
-                              <StatusIcon className={cn(
-                                'h-3 w-3 mt-0.5 flex-shrink-0',
-                                status.color,
-                                isRunning && 'animate-spin'
-                              )} />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="text-xs font-medium truncate">
-                                    {task.name || 'Untitled'}
-                                  </span>
-                                  <Badge 
-                                    variant="outline" 
-                                    className={cn('text-[9px] border-0 uppercase px-1', status.color)}
-                                  >
-                                    {status.label}
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground uppercase tracking-wider">
-                                  <span>{task.imagesCount} imgs</span>
-                                  <span>{formatDuration(task.processingTime)}</span>
-                                </div>
-                                {(isRunning || task.progress > 0) && task.progress < 100 && (
-                                  <div className="mt-1">
-                                    <Progress value={task.progress} className="h-0.5" />
-                                    <span className="text-[9px] text-muted-foreground">{task.progress}%</span>
-                                  </div>
-                                )}
-                              </div>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                  <Button variant="ghost" size="icon" className="h-5 w-5">
-                                    <MoreVertical className="h-3 w-3" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="bg-popover border-border">
-                                  {task.status.code === 40 && (
-                                    <DropdownMenuItem onClick={() => {
-                                      const url = getDownloadUrl(task.uuid);
-                                      window.open(url, '_blank');
-                                    }}>
-                                      <Download className="h-3 w-3 mr-2" />
-                                      Download
-                                    </DropdownMenuItem>
-                                  )}
-                                  {(task.status.code === 10 || task.status.code === 20) && (
-                                    <DropdownMenuItem onClick={() => cancelTask(task.uuid)}>
-                                      <XCircle className="h-3 w-3 mr-2" />
-                                      Cancel
-                                    </DropdownMenuItem>
-                                  )}
-                                  {(task.status.code === 30 || task.status.code === 40 || task.status.code === 50) && (
-                                    <DropdownMenuItem onClick={() => restartTask(task.uuid)}>
-                                      <RefreshCw className="h-3 w-3 mr-2" />
-                                      Restart
-                                    </DropdownMenuItem>
-                                  )}
-                                  <DropdownMenuItem 
-                                    onClick={() => removeTask(task.uuid)}
-                                    className="text-[#ff3333]"
-                                  >
-                                    <Trash2 className="h-3 w-3 mr-2" />
-                                    Remove
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                {/* Refresh button */}
+                <div className="mb-2 flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => refreshTasks()}
+                    disabled={isLoadingTasks}
+                    className="h-6 w-6"
+                  >
+                    <RefreshCw className={cn('h-3 w-3', isLoadingTasks && 'animate-spin')} />
+                  </Button>
                 </div>
-              </>
+
+                {/* Task List */}
+                {filteredTasks.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                    <Activity className="h-6 w-6 mb-2 opacity-30" />
+                    <p className="text-[10px] uppercase tracking-wider">No jobs found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {filteredTasks.map((task) => {
+                      const status = statusConfig[task.status.code];
+                      const StatusIcon = status.icon;
+                      const isRunning = task.status.code === 20;
+                      const isSelected = task.uuid === selectedTaskId;
+
+                      return (
+                        <div
+                          key={task.uuid}
+                          onClick={() => setSelectedTaskId(task.uuid)}
+                          className={cn(
+                            'p-2 cursor-pointer transition-colors rounded',
+                            'hover:bg-accent',
+                            isSelected && 'bg-accent border-l-2 border-white'
+                          )}
+                        >
+                          <div className="flex items-start gap-2">
+                            <StatusIcon className={cn(
+                              'h-3 w-3 mt-0.5 flex-shrink-0',
+                              status.color,
+                              isRunning && 'animate-spin'
+                            )} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="text-xs font-medium truncate">
+                                  {task.name || 'Untitled'}
+                                </span>
+                                <Badge 
+                                  variant="outline" 
+                                  className={cn('text-[9px] border-0 uppercase px-1', status.color)}
+                                >
+                                  {status.label}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground uppercase tracking-wider">
+                                <span>{task.imagesCount} imgs</span>
+                                <span>{formatDuration(task.processingTime)}</span>
+                              </div>
+                              {(isRunning || task.progress > 0) && task.progress < 100 && (
+                                <div className="mt-1">
+                                  <Progress value={task.progress} className="h-0.5" />
+                                  <span className="text-[9px] text-muted-foreground">{task.progress}%</span>
+                                </div>
+                              )}
+                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                <Button variant="ghost" size="icon" className="h-5 w-5">
+                                  <MoreVertical className="h-3 w-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="bg-popover border-border">
+                                {task.status.code === 40 && (
+                                  <DropdownMenuItem onClick={() => {
+                                    const url = getDownloadUrl(task.uuid);
+                                    window.open(url, '_blank');
+                                  }}>
+                                    <Download className="h-3 w-3 mr-2" />
+                                    Download
+                                  </DropdownMenuItem>
+                                )}
+                                {(task.status.code === 10 || task.status.code === 20) && (
+                                  <DropdownMenuItem onClick={() => cancelTask(task.uuid)}>
+                                    <XCircle className="h-3 w-3 mr-2" />
+                                    Cancel
+                                  </DropdownMenuItem>
+                                )}
+                                {(task.status.code === 30 || task.status.code === 40 || task.status.code === 50) && (
+                                  <DropdownMenuItem onClick={() => restartTask(task.uuid)}>
+                                    <RefreshCw className="h-3 w-3 mr-2" />
+                                    Restart
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem 
+                                  onClick={() => removeTask(task.uuid)}
+                                  className="text-[#ff3333]"
+                                >
+                                  <Trash2 className="h-3 w-3 mr-2" />
+                                  Remove
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </nav>
 
         {/* Footer */}
         <div className="p-2 border-t">

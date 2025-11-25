@@ -46,14 +46,13 @@ export function OrthomosaicViewer({
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 
-  // Try multiple orthomosaic formats (PNG first as browsers support it better)
+  // Try multiple orthomosaic formats
+  // NodeODM stores orthophotos at: odm_orthophoto/odm_orthophoto.{tif,png}
+  // Browsers can display PNG but not GeoTIFF, so PNG is prioritized
+  // The API endpoint is /task/{uuid}/download/{path}
   const orthoFormats = [
-    'orthomosaic.png',
-    'odm_orthophoto.png',
-    'orthophoto.png',
-    'orthomosaic.tif',
-    'odm_orthophoto.tif',
-    'orthophoto.tif',
+    'odm_orthophoto/odm_orthophoto.png',  // Browser-friendly PNG version
+    'odm_orthophoto/odm_orthophoto.tif',  // GeoTIFF (won't display in browser but can be downloaded)
   ];
 
   // Load orthomosaic image - try multiple formats
@@ -65,6 +64,29 @@ export function OrthomosaicViewer({
     setLoadedUrl(null);
 
     const tryLoadImage = async (imageUrl: string): Promise<boolean> => {
+      // First check if the file exists using HEAD request
+      try {
+        console.log(`[OrthomosaicViewer] Trying to load: ${imageUrl}`);
+        const headResponse = await fetch(imageUrl, { method: 'HEAD' });
+        if (!headResponse.ok) {
+          console.log(`[OrthomosaicViewer] HEAD request failed for ${imageUrl}: ${headResponse.status}`);
+          return false;
+        }
+        
+        // Check content type - we can only display images in browser
+        const contentType = headResponse.headers.get('content-type');
+        console.log(`[OrthomosaicViewer] Content-Type: ${contentType}`);
+        
+        // GeoTIFF files can't be displayed directly in browser
+        if (contentType?.includes('tiff') || contentType?.includes('tif')) {
+          console.log(`[OrthomosaicViewer] File is TIFF format - browsers cannot display this directly`);
+          // Continue to try loading it, but it might fail
+        }
+      } catch (err) {
+        console.log(`[OrthomosaicViewer] HEAD request error for ${imageUrl}:`, err);
+        return false;
+      }
+
       return new Promise((resolve) => {
         const img = new Image();
         let resolved = false;
@@ -137,11 +159,13 @@ export function OrthomosaicViewer({
         }
         // If we get here, none of the formats worked
         setError(
-          `Orthomosaic not found.\n` +
-          `Tried formats: ${orthoFormats.join(', ')}\n` +
-          `Base URL: ${baseUrl}\n` +
-          `Task ID: ${taskId}\n` +
-          `Make sure the task is completed and orthomosaic was generated.`
+          `Orthomosaic not found.\n\n` +
+          `Tried paths:\n${orthoFormats.map(f => `  • ${baseUrl}/task/${taskId}/download/${f}`).join('\n')}\n\n` +
+          `Common issues:\n` +
+          `• Task may still be processing (check if status is COMPLETED)\n` +
+          `• Orthophoto generation might have been skipped\n` +
+          `• CORS may be blocking the request (check browser console)\n` +
+          `• NodeODM server might not be running at ${baseUrl}`
         );
         setIsLoading(false);
       }
