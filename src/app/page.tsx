@@ -254,7 +254,10 @@ export default function Home() {
                       return (
                         <div
                           key={task.uuid}
-                          onClick={() => setSelectedTaskId(task.uuid)}
+                          onClick={() => {
+                            setSelectedTaskId(task.uuid);
+                            setActiveView('job-status');
+                          }}
                           className={cn(
                             'p-2 cursor-pointer transition-colors rounded',
                             'hover:bg-accent',
