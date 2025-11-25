@@ -7,12 +7,11 @@ import {
   Folder,
   FolderOpen,
   Image as ImageIcon,
-  Check,
   Minus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { FileNode, ImageFile } from '@/lib/types/nodeodm';
+import type { FileNode } from '@/lib/types/nodeodm';
 
 interface FileTreeProps {
   nodes: FileNode[];
@@ -42,10 +41,7 @@ function getAllFileIds(node: FileNode): string[] {
   return node.children.flatMap(getAllFileIds);
 }
 
-function getSelectionState(
-  node: FileNode,
-  selectedFiles: Set<string>
-): 'none' | 'partial' | 'all' {
+function getSelectionState(node: FileNode, selectedFiles: Set<string>): 'none' | 'partial' | 'all' {
   if (node.type === 'file') {
     return selectedFiles.has(node.id) ? 'all' : 'none';
   }
@@ -72,18 +68,13 @@ function FileTreeNode({
   const fileCount = getFileCount(node);
 
   const handleToggle = useCallback(() => {
-    if (isDirectory) {
-      setExpanded((prev) => !prev);
-    }
+    if (isDirectory) setExpanded((prev) => !prev);
   }, [isDirectory]);
 
   const handleSelect = useCallback(
     (checked: boolean) => {
-      if (isDirectory) {
-        onToggleSelectAll(node, checked);
-      } else {
-        onToggleSelect(node, checked);
-      }
+      if (isDirectory) onToggleSelectAll(node, checked);
+      else onToggleSelect(node, checked);
     },
     [isDirectory, node, onToggleSelect, onToggleSelectAll]
   );
@@ -92,24 +83,21 @@ function FileTreeNode({
     <div className="select-none">
       <div
         className={cn(
-          'flex items-center gap-1 py-1 px-2 rounded-md cursor-pointer transition-colors',
-          'hover:bg-accent/50 group',
-          selectionState !== 'none' && 'bg-accent/30'
+          'flex items-center gap-1 py-1.5 px-2 cursor-pointer transition-colors',
+          'hover:bg-accent group',
+          selectionState !== 'none' && 'bg-accent/50'
         )}
-        style={{ paddingLeft: `${level * 16 + 8}px` }}
+        style={{ paddingLeft: `${level * 12 + 8}px` }}
       >
-        {/* Expand/Collapse button */}
+        {/* Expand/Collapse */}
         <button
           onClick={handleToggle}
-          className={cn(
-            'p-0.5 rounded hover:bg-accent',
-            !isDirectory && 'invisible'
-          )}
+          className={cn('p-0.5', !isDirectory && 'invisible')}
         >
           {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            <ChevronRight className="h-3 w-3 text-muted-foreground" />
           )}
         </button>
 
@@ -119,12 +107,13 @@ function FileTreeNode({
             checked={selectionState === 'all'}
             onCheckedChange={handleSelect}
             className={cn(
-              'h-4 w-4',
-              selectionState === 'partial' && 'data-[state=unchecked]:bg-primary/50'
+              'h-3.5 w-3.5 border-border',
+              'data-[state=checked]:bg-white data-[state=checked]:text-black',
+              selectionState === 'partial' && 'data-[state=unchecked]:bg-white/30'
             )}
           />
           {selectionState === 'partial' && (
-            <Minus className="absolute h-3 w-3 text-primary-foreground pointer-events-none" />
+            <Minus className="absolute h-2.5 w-2.5 text-black pointer-events-none" />
           )}
         </div>
 
@@ -132,34 +121,32 @@ function FileTreeNode({
         <span className="flex-shrink-0" onClick={handleToggle}>
           {isDirectory ? (
             expanded ? (
-              <FolderOpen className="h-4 w-4 text-amber-500" />
+              <FolderOpen className="h-3.5 w-3.5 text-[#ffcc00]" />
             ) : (
-              <Folder className="h-4 w-4 text-amber-500" />
+              <Folder className="h-3.5 w-3.5 text-[#ffcc00]" />
             )
           ) : (
-            <ImageIcon className="h-4 w-4 text-emerald-500" />
+            <ImageIcon className="h-3.5 w-3.5 text-[#00ff88]" />
           )}
         </span>
 
         {/* Name */}
         <span
-          className="flex-1 truncate text-sm"
+          className="flex-1 truncate text-xs uppercase tracking-wider"
           onClick={handleToggle}
           title={node.name}
         >
           {node.name}
         </span>
 
-        {/* File count for directories */}
+        {/* Count */}
         {isDirectory && fileCount > 0 && (
-          <span className="text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded-full">
-            {fileCount}
-          </span>
+          <span className="text-[10px] text-muted-foreground">{fileCount}</span>
         )}
 
-        {/* Size for files */}
+        {/* Size */}
         {!isDirectory && node.size && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground">
             {formatFileSize(node.size)}
           </span>
         )}
@@ -185,10 +172,10 @@ function FileTreeNode({
 }
 
 function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}K`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
 }
 
 export function FileTree({
@@ -200,16 +187,15 @@ export function FileTree({
 }: FileTreeProps) {
   if (nodes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <Folder className="h-12 w-12 mb-4 opacity-50" />
-        <p className="text-sm">No files loaded</p>
-        <p className="text-xs mt-1">Drop files or select a folder to begin</p>
+      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+        <Folder className="h-8 w-8 mb-3 opacity-30" />
+        <p className="text-xs uppercase tracking-wider">No Files</p>
       </div>
     );
   }
 
   return (
-    <div className="py-2">
+    <div className="py-1">
       {nodes.map((node) => (
         <FileTreeNode
           key={node.id}
@@ -225,4 +211,3 @@ export function FileTree({
 }
 
 export { getAllFileIds, getFileCount };
-

@@ -2,35 +2,26 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  Rocket,
-  FolderOpen,
-  Map as MapIcon,
-  Box,
-  Play,
   Plus,
-  Terminal,
+  Activity,
+  Settings,
+  Wifi,
+  WifiOff,
+  Server,
+  ChevronRight,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from '@/components/ui/resizable';
-import { Header, SettingsDialog } from '@/components/layout';
-import { FileBrowser } from '@/components/file-browser';
-import { TaskList, CreateTaskDialog } from '@/components/tasks';
-import { LogViewer } from '@/components/log-viewer';
-import { MapView } from '@/components/map-view';
-import { PointCloudViewer } from '@/components/pointcloud-viewer';
-import { useNodeODM } from '@/hooks/use-nodeodm';
-import type { ImageFile, TaskOption } from '@/lib/types/nodeodm';
 import { cn } from '@/lib/utils';
+import { useNodeODM } from '@/hooks/use-nodeodm';
+import { SettingsDialog } from '@/components/layout';
+import { NewJobView } from '@/components/views/new-job-view';
+import { JobStatusView } from '@/components/views/job-status-view';
+
+type View = 'new-job' | 'job-status';
 
 export default function Home() {
-  // NodeODM hook
   const {
     isConnected,
     nodeInfo,
@@ -50,45 +41,15 @@ export default function Home() {
     getDownloadUrl,
     odmOptions,
     loadOptions,
-    isUploading,
-    uploadProgress,
   } = useNodeODM();
 
-  // UI State
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [createTaskOpen, setCreateTaskOpen] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<ImageFile[]>([]);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
-  const [taskLogs, setTaskLogs] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState('files');
-  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [activeView, setActiveView] = useState<View>('new-job');
 
-  // Get selected task
-  const selectedTask = tasks.find((t) => t.uuid === selectedTaskId);
+  // Count running tasks
+  const runningTasks = tasks.filter(t => t.status.code === 20).length;
+  const queuedTasks = tasks.filter(t => t.status.code === 10).length;
 
-  // Fetch logs for selected task
-  useEffect(() => {
-    if (!selectedTaskId || !isConnected) {
-      setTaskLogs([]);
-      return;
-    }
-
-    const fetchLogs = async () => {
-      const output = await getTaskOutput(selectedTaskId, 0);
-      setTaskLogs(output);
-    };
-
-    fetchLogs();
-
-    // Poll for logs if task is running
-    const task = tasks.find((t) => t.uuid === selectedTaskId);
-    if (task && (task.status.code === 10 || task.status.code === 20)) {
-      const interval = setInterval(fetchLogs, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [selectedTaskId, isConnected, tasks, getTaskOutput]);
-
-  // Handlers
   const handleSettingsSave = useCallback(
     (newUrl: string, newToken?: string) => {
       setBaseUrl(newUrl);
@@ -118,237 +79,150 @@ export default function Home() {
     [baseUrl, token, setBaseUrl, setToken, connect]
   );
 
-  const handleCreateTask = useCallback(
-    async (name: string, options: TaskOption[]) => {
-      if (selectedFiles.length === 0) {
-        toast.error('No files selected');
-        return;
-      }
-
-      setIsCreatingTask(true);
-
-      // We need the actual File objects, not just ImageFile metadata
-      // In a real implementation, you'd store the File objects alongside ImageFile
-      // For now, show a message
-      toast.info('Creating task...', {
-        description: `Processing ${selectedFiles.length} images`,
-      });
-
-      // Simulate task creation (in real app, you'd have actual File objects)
-      setTimeout(() => {
-        setIsCreatingTask(false);
-        setCreateTaskOpen(false);
-        toast.success('Task created!', {
-          description: 'Your images are being processed',
-        });
-        refreshTasks();
-      }, 1500);
-    },
-    [selectedFiles, refreshTasks]
-  );
-
-  const handleCancelTask = useCallback(
-    async (uuid: string) => {
-      const success = await cancelTask(uuid);
-      if (success) {
-        toast.success('Task cancelled');
-      } else {
-        toast.error('Failed to cancel task');
-      }
-    },
-    [cancelTask]
-  );
-
-  const handleRemoveTask = useCallback(
-    async (uuid: string) => {
-      const success = await removeTask(uuid);
-      if (success) {
-        toast.success('Task removed');
-        if (selectedTaskId === uuid) {
-          setSelectedTaskId(undefined);
-        }
-      } else {
-        toast.error('Failed to remove task');
-      }
-    },
-    [removeTask, selectedTaskId]
-  );
-
-  const handleRestartTask = useCallback(
-    async (uuid: string) => {
-      const success = await restartTask(uuid);
-      if (success) {
-        toast.success('Task restarted');
-      } else {
-        toast.error('Failed to restart task');
-      }
-    },
-    [restartTask]
-  );
-
-  const handleDownloadTask = useCallback(
-    (uuid: string) => {
-      const url = getDownloadUrl(uuid);
-      window.open(url, '_blank');
-    },
-    [getDownloadUrl]
-  );
-
-  const handleRefresh = useCallback(async () => {
-    await connect();
-    await refreshTasks();
-    await loadOptions();
-    toast.success('Refreshed');
-  }, [connect, refreshTasks, loadOptions]);
-
-  // Stats
-  const gpsCount = selectedFiles.filter(
-    (f) => f.exif?.latitude !== undefined && f.exif?.longitude !== undefined
-  ).length;
-
   return (
-    <div className="h-screen flex flex-col bg-background">
-      <Toaster position="top-right" richColors />
-
-      {/* Header */}
-      <Header
-        isConnected={isConnected}
-        nodeInfo={nodeInfo || undefined}
-        baseUrl={baseUrl}
-        onSettingsClick={() => setSettingsOpen(true)}
-        onRefresh={handleRefresh}
-        isRefreshing={isLoadingTasks}
+    <div className="h-screen flex bg-background">
+      <Toaster 
+        position="bottom-right" 
+        toastOptions={{
+          style: {
+            background: '#0a0a0a',
+            border: '1px solid #262626',
+            color: '#ffffff',
+            borderRadius: '2px',
+          },
+        }}
       />
 
-      {/* Main content */}
-      <main className="flex-1 overflow-hidden">
-        <ResizablePanelGroup direction="horizontal">
-          {/* Left panel - File browser & Tasks */}
-          <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
-            <div className="h-full flex flex-col">
-              <Tabs
-                value={activeTab}
-                onValueChange={setActiveTab}
-                className="flex-1 flex flex-col"
-              >
-                <div className="px-4 pt-4">
-                  <TabsList className="w-full">
-                    <TabsTrigger value="files" className="flex-1 gap-2">
-                      <FolderOpen className="h-4 w-4" />
-                      Files
-                      {selectedFiles.length > 0 && (
-                        <Badge variant="secondary" className="h-5 text-[10px]">
-                          {selectedFiles.length}
-                        </Badge>
-                      )}
-                    </TabsTrigger>
-                    <TabsTrigger value="tasks" className="flex-1 gap-2">
-                      <Play className="h-4 w-4" />
-                      Tasks
-                      {tasks.length > 0 && (
-                        <Badge variant="secondary" className="h-5 text-[10px]">
-                          {tasks.length}
-                        </Badge>
-                      )}
-                    </TabsTrigger>
-                  </TabsList>
-                </div>
-
-                <TabsContent value="files" className="flex-1 p-4 pt-2 overflow-hidden">
-                  <div className="h-full flex flex-col gap-4">
-                    <FileBrowser
-                      selectedFiles={selectedFiles}
-                      setSelectedFiles={setSelectedFiles}
-                    />
-
-                    {/* Create task button */}
-                    {selectedFiles.length > 0 && (
-                      <Button
-                        size="lg"
-                        className="w-full gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
-                        onClick={() => setCreateTaskOpen(true)}
-                        disabled={!isConnected}
-                      >
-                        <Rocket className="h-5 w-5" />
-                        Process {selectedFiles.length} Images
-                      </Button>
-                    )}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="tasks" className="flex-1 p-4 pt-2 overflow-hidden">
-                  <TaskList
-                    tasks={tasks}
-                    selectedTaskId={selectedTaskId}
-                    onSelectTask={setSelectedTaskId}
-                    onCancelTask={handleCancelTask}
-                    onRemoveTask={handleRemoveTask}
-                    onRestartTask={handleRestartTask}
-                    onDownloadTask={handleDownloadTask}
-                    isLoading={isLoadingTasks}
-                    onRefresh={refreshTasks}
-                  />
-                </TabsContent>
-              </Tabs>
+      {/* Left Sidebar - Navigation */}
+      <aside className="w-64 border-r bg-sidebar flex flex-col">
+        {/* Logo */}
+        <div className="p-4 border-b">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white flex items-center justify-center">
+              <span className="text-black font-bold text-lg">C</span>
             </div>
-          </ResizablePanel>
+            <div>
+              <h1 className="font-bold text-sm tracking-wider uppercase">CursedODM</h1>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
+                Drone Mapping
+              </p>
+            </div>
+          </div>
+        </div>
 
-          <ResizableHandle withHandle />
+        {/* Connection Status */}
+        <div className="p-4 border-b">
+          <div className={cn(
+            'flex items-center gap-2 text-xs uppercase tracking-wider',
+            isConnected ? 'text-[#00ff88]' : 'text-[#ff3333]'
+          )}>
+            {isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+            {isConnected ? 'Online' : 'Offline'}
+          </div>
+          {nodeInfo && (
+            <div className="mt-2 text-[10px] text-muted-foreground uppercase tracking-wider">
+              <div className="flex items-center gap-1">
+                <Server className="h-3 w-3" />
+                {nodeInfo.engine} v{nodeInfo.engineVersion}
+              </div>
+            </div>
+          )}
+        </div>
 
-          {/* Right panel - Map, Point Cloud, Logs */}
-          <ResizablePanel defaultSize={70}>
-            <ResizablePanelGroup direction="vertical">
-              {/* Top - Map or Point Cloud */}
-              <ResizablePanel defaultSize={60} minSize={30}>
-                <div className="h-full p-4">
-                  <Tabs defaultValue="map" className="h-full flex flex-col">
-                    <TabsList className="w-fit">
-                      <TabsTrigger value="map" className="gap-2">
-                        <MapIcon className="h-4 w-4" />
-                        Map View
-                        {gpsCount > 0 && (
-                          <Badge variant="secondary" className="h-5 text-[10px]">
-                            {gpsCount}
-                          </Badge>
-                        )}
-                      </TabsTrigger>
-                      <TabsTrigger value="pointcloud" className="gap-2">
-                        <Box className="h-4 w-4" />
-                        Point Cloud
-                      </TabsTrigger>
-                    </TabsList>
+        {/* Navigation */}
+        <nav className="flex-1 p-2">
+          <button
+            onClick={() => setActiveView('new-job')}
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-3 text-sm uppercase tracking-wider transition-colors',
+              'hover:bg-accent',
+              activeView === 'new-job' 
+                ? 'bg-accent text-white border-l-2 border-white' 
+                : 'text-muted-foreground'
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            New Job
+            <ChevronRight className={cn(
+              'h-4 w-4 ml-auto transition-transform',
+              activeView === 'new-job' && 'rotate-90'
+            )} />
+          </button>
 
-                    <TabsContent value="map" className="flex-1 mt-4">
-                      <MapView images={selectedFiles} />
-                    </TabsContent>
+          <button
+            onClick={() => setActiveView('job-status')}
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-3 text-sm uppercase tracking-wider transition-colors',
+              'hover:bg-accent',
+              activeView === 'job-status' 
+                ? 'bg-accent text-white border-l-2 border-white' 
+                : 'text-muted-foreground'
+            )}
+          >
+            <Activity className="h-4 w-4" />
+            Job Status
+            {(runningTasks > 0 || queuedTasks > 0) && (
+              <Badge 
+                variant="outline" 
+                className={cn(
+                  'ml-auto text-[10px] border-0',
+                  runningTasks > 0 ? 'bg-[#00ccff]/20 text-[#00ccff]' : 'bg-[#ffcc00]/20 text-[#ffcc00]'
+                )}
+              >
+                {runningTasks > 0 ? runningTasks : queuedTasks}
+              </Badge>
+            )}
+            <ChevronRight className={cn(
+              'h-4 w-4 transition-transform',
+              activeView === 'job-status' && 'rotate-90'
+            )} />
+          </button>
+        </nav>
 
-                    <TabsContent value="pointcloud" className="flex-1 mt-4">
-                      <PointCloudViewer
-                        taskId={selectedTask?.status.code === 40 ? selectedTaskId : undefined}
-                        baseUrl={baseUrl}
-                      />
-                    </TabsContent>
-                  </Tabs>
-                </div>
-              </ResizablePanel>
+        {/* Footer */}
+        <div className="p-2 border-t">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="w-full flex items-center gap-3 px-3 py-3 text-sm uppercase tracking-wider text-muted-foreground hover:bg-accent hover:text-white transition-colors"
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </button>
+        </div>
+      </aside>
 
-              <ResizableHandle withHandle />
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {activeView === 'new-job' && (
+          <NewJobView
+            odmOptions={odmOptions}
+            isConnected={isConnected}
+            onTaskCreated={() => {
+              setActiveView('job-status');
+              refreshTasks();
+            }}
+          />
+        )}
 
-              {/* Bottom - Logs */}
-              <ResizablePanel defaultSize={40} minSize={20}>
-                <div className="h-full p-4 pt-0">
-                  <LogViewer
-                    logs={taskLogs}
-                    title={selectedTask ? `Output: ${selectedTask.name || selectedTask.uuid}` : 'Console Output'}
-                  />
-                </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+        {activeView === 'job-status' && (
+          <JobStatusView
+            tasks={tasks}
+            isLoading={isLoadingTasks}
+            onRefresh={refreshTasks}
+            onCancelTask={cancelTask}
+            onRemoveTask={removeTask}
+            onRestartTask={restartTask}
+            onDownloadTask={(uuid) => {
+              const url = getDownloadUrl(uuid);
+              window.open(url, '_blank');
+            }}
+            getTaskOutput={getTaskOutput}
+            baseUrl={baseUrl}
+          />
+        )}
       </main>
 
-      {/* Dialogs */}
+      {/* Settings Dialog */}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
@@ -356,15 +230,6 @@ export default function Home() {
         token={token}
         onSave={handleSettingsSave}
         onTest={handleTestConnection}
-      />
-
-      <CreateTaskDialog
-        open={createTaskOpen}
-        onOpenChange={setCreateTaskOpen}
-        odmOptions={odmOptions}
-        selectedFiles={selectedFiles}
-        onCreateTask={handleCreateTask}
-        isCreating={isCreatingTask}
       />
     </div>
   );

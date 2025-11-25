@@ -10,10 +10,9 @@ import {
   ZoomOut,
   Maximize2,
   Navigation,
-  Image as ImageIcon,
-  Info,
+  Box,
+  Mountain,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -38,21 +37,6 @@ interface MapViewProps {
   className?: string;
 }
 
-interface GeoJSONFeature {
-  type: 'Feature';
-  geometry: {
-    type: 'Point';
-    coordinates: [number, number];
-  };
-  properties: {
-    id: string;
-    name: string;
-    altitude?: number;
-    heading?: number;
-    gimbalPitch?: number;
-  };
-}
-
 export function MapView({
   images,
   onImageSelect,
@@ -63,7 +47,7 @@ export function MapView({
   const map = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [mapStyle, setMapStyle] = useState<'satellite' | 'streets'>('satellite');
+  const [is3D, setIs3D] = useState(true);
 
   // Filter images with GPS data
   const geoImages = images.filter(
@@ -88,7 +72,6 @@ export function MapView({
       maxLng = Math.max(maxLng, lng);
     });
 
-    // Add padding
     const latPad = (maxLat - minLat) * 0.1 || 0.001;
     const lngPad = (maxLng - minLng) * 0.1 || 0.001;
 
@@ -108,14 +91,17 @@ export function MapView({
           (bounds.getWest() + bounds.getEast()) / 2,
           (bounds.getSouth() + bounds.getNorth()) / 2,
         ]
-      : [-98.5795, 39.8283]; // Center of US as default
+      : [-98.5795, 39.8283];
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: MAPBOX_STYLE,
       center,
       zoom: bounds ? 14 : 4,
+      pitch: 60, // Enable 3D pitch
+      bearing: -20,
       attributionControl: false,
+      antialias: true,
     });
 
     map.current.addControl(
@@ -123,11 +109,41 @@ export function MapView({
       'bottom-right'
     );
 
-    map.current.on('load', () => {
+    // Add navigation control
+    map.current.addControl(
+      new mapboxgl.NavigationControl({ visualizePitch: true }),
+      'bottom-right'
+    );
+
+    map.current.on('style.load', () => {
+      if (!map.current) return;
+
+      // Add terrain source for 3D
+      map.current.addSource('mapbox-dem', {
+        type: 'raster-dem',
+        url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+        tileSize: 512,
+        maxzoom: 14,
+      });
+
+      // Enable 3D terrain
+      map.current.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+
+      // Add sky layer for atmosphere
+      map.current.addLayer({
+        id: 'sky',
+        type: 'sky',
+        paint: {
+          'sky-type': 'atmosphere',
+          'sky-atmosphere-sun': [0.0, 90.0],
+          'sky-atmosphere-sun-intensity': 15,
+        },
+      });
+
       setMapLoaded(true);
 
       if (bounds && map.current) {
-        map.current.fitBounds(bounds, { padding: 50 });
+        map.current.fitBounds(bounds, { padding: 50, pitch: 60, bearing: -20 });
       }
     });
 
@@ -152,40 +168,21 @@ export function MapView({
       const el = document.createElement('div');
       el.className = 'map-marker';
       el.style.cssText = `
-        width: 24px;
-        height: 24px;
-        background: ${selectedImageId === img.id ? '#3b82f6' : '#10b981'};
-        border: 2px solid white;
-        border-radius: 50%;
+        width: 12px;
+        height: 12px;
+        background: ${selectedImageId === img.id ? '#00ccff' : '#00ff88'};
+        border: 2px solid #000;
         cursor: pointer;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+        box-shadow: 0 0 10px ${selectedImageId === img.id ? '#00ccff' : '#00ff88'};
+        transition: box-shadow 0.15s ease-out;
       `;
 
-      // Add heading indicator if available
-      if (img.exif?.heading !== undefined) {
-        const arrow = document.createElement('div');
-        arrow.style.cssText = `
-          width: 0;
-          height: 0;
-          border-left: 4px solid transparent;
-          border-right: 4px solid transparent;
-          border-bottom: 8px solid white;
-          transform: rotate(${img.exif.heading}deg);
-          transform-origin: center center;
-        `;
-        el.appendChild(arrow);
-      }
-
       el.addEventListener('mouseenter', () => {
-        el.style.boxShadow = '0 4px 8px rgba(0,0,0,0.4)';
+        el.style.boxShadow = `0 0 20px ${selectedImageId === img.id ? '#00ccff' : '#00ff88'}`;
       });
 
       el.addEventListener('mouseleave', () => {
-        el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+        el.style.boxShadow = `0 0 10px ${selectedImageId === img.id ? '#00ccff' : '#00ff88'}`;
       });
 
       el.addEventListener('click', () => {
@@ -196,13 +193,29 @@ export function MapView({
         .setLngLat([img.exif!.longitude!, img.exif!.latitude!])
         .setPopup(
           new mapboxgl.Popup({ offset: 25, closeButton: false }).setHTML(`
-            <div style="padding: 8px; min-width: 150px;">
-              <strong style="font-size: 13px;">${img.name}</strong>
-              <div style="font-size: 11px; color: #666; margin-top: 4px;">
-                <div>Lat: ${img.exif!.latitude!.toFixed(6)}</div>
-                <div>Lng: ${img.exif!.longitude!.toFixed(6)}</div>
-                ${img.exif?.altitude ? `<div>Alt: ${img.exif.altitude.toFixed(1)}m</div>` : ''}
-                ${img.exif?.heading !== undefined ? `<div>Heading: ${img.exif.heading.toFixed(1)}°</div>` : ''}
+            <div style="padding: 12px; min-width: 180px; font-family: monospace;">
+              <strong style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;">${img.name}</strong>
+              <div style="font-size: 10px; color: #737373; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.05em;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span>LAT</span>
+                  <span style="color: #fff;">${img.exif!.latitude!.toFixed(6)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span>LNG</span>
+                  <span style="color: #fff;">${img.exif!.longitude!.toFixed(6)}</span>
+                </div>
+                ${img.exif?.altitude ? `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span>ALT</span>
+                  <span style="color: #00ff88;">${img.exif.altitude.toFixed(1)}m</span>
+                </div>
+                ` : ''}
+                ${img.exif?.heading !== undefined ? `
+                <div style="display: flex; justify-content: space-between;">
+                  <span>HDG</span>
+                  <span style="color: #00ccff;">${img.exif.heading.toFixed(1)}°</span>
+                </div>
+                ` : ''}
               </div>
             </div>
           `)
@@ -219,21 +232,9 @@ export function MapView({
 
     const bounds = getBounds();
     if (bounds) {
-      map.current.fitBounds(bounds, { padding: 50, duration: 1000 });
+      map.current.fitBounds(bounds, { padding: 50, duration: 1000, pitch: 60, bearing: -20 });
     }
   }, [geoImages.length, mapLoaded, getBounds]);
-
-  // Handle selected image
-  useEffect(() => {
-    if (!map.current || !mapLoaded || !selectedImageId) return;
-
-    const marker = markersRef.current.get(selectedImageId);
-    if (marker) {
-      const lngLat = marker.getLngLat();
-      map.current.flyTo({ center: lngLat, zoom: 17, duration: 1000 });
-      marker.togglePopup();
-    }
-  }, [selectedImageId, mapLoaded]);
 
   // Map controls
   const handleZoomIn = () => map.current?.zoomIn();
@@ -241,132 +242,116 @@ export function MapView({
   const handleFitBounds = () => {
     const bounds = getBounds();
     if (bounds && map.current) {
-      map.current.fitBounds(bounds, { padding: 50, duration: 1000 });
+      map.current.fitBounds(bounds, { padding: 50, duration: 1000, pitch: 60, bearing: -20 });
     }
   };
 
-  const handleToggleStyle = () => {
+  const handleToggle3D = () => {
     if (!map.current) return;
-    const newStyle = mapStyle === 'satellite' ? 'streets' : 'satellite';
-    setMapStyle(newStyle);
-    map.current.setStyle(
-      newStyle === 'satellite'
-        ? MAPBOX_STYLE
-        : 'mapbox://styles/mapbox/streets-v12'
-    );
+    const newIs3D = !is3D;
+    setIs3D(newIs3D);
+    
+    if (newIs3D) {
+      map.current.easeTo({ pitch: 60, bearing: -20, duration: 1000 });
+      map.current.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+    } else {
+      map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+      map.current.setTerrain(null);
+    }
   };
 
   return (
-    <Card className={cn('h-full flex flex-col', className)}>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
-            <MapIcon className="h-5 w-5" />
-            Image Locations
-            {geoImages.length > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {geoImages.length} / {images.length}
-              </Badge>
-            )}
-          </CardTitle>
-          <TooltipProvider>
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={handleToggleStyle}
-                  >
-                    <Layers className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Toggle map style</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={handleFitBounds}
-                  >
-                    <Maximize2 className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Fit to bounds</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={handleZoomIn}
-                  >
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Zoom in</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={handleZoomOut}
-                  >
-                    <ZoomOut className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Zoom out</TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
-        </div>
-      </CardHeader>
-
-      <CardContent className="flex-1 overflow-hidden p-0 relative">
-        {geoImages.length === 0 ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground bg-muted/50">
-            <Navigation className="h-12 w-12 mb-4 opacity-50" />
-            <p className="text-sm">No GPS data available</p>
-            <p className="text-xs mt-1">
-              Select images with GPS coordinates to view on map
+    <div className={cn('h-full w-full flex flex-col', className)}>
+      {/* Map Container */}
+      <div className="flex-1 relative">
+        {geoImages.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground bg-black/80 z-10">
+            <Navigation className="h-12 w-12 mb-4 opacity-30" />
+            <p className="text-xs uppercase tracking-wider">No GPS Data</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-1 uppercase tracking-wider">
+              Select images with coordinates
             </p>
           </div>
-        ) : null}
-        <div
-          ref={mapContainer}
-          className={cn(
-            'absolute inset-0',
-            geoImages.length === 0 && 'opacity-30'
-          )}
-        />
+        )}
+        
+        <div ref={mapContainer} className="absolute inset-0" />
 
-        {/* Legend */}
+        {/* Controls */}
+        <div className="absolute top-4 left-4 flex flex-col gap-1 z-10">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 bg-black/80 border-border hover:bg-black"
+                  onClick={handleToggle3D}
+                >
+                  <Mountain className={cn('h-4 w-4', is3D && 'text-[#00ff88]')} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Toggle 3D terrain</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 bg-black/80 border-border hover:bg-black"
+                  onClick={handleFitBounds}
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Fit to bounds</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 bg-black/80 border-border hover:bg-black"
+                  onClick={handleZoomIn}
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Zoom in</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 bg-black/80 border-border hover:bg-black"
+                  onClick={handleZoomOut}
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Zoom out</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
+        {/* Stats overlay */}
         {geoImages.length > 0 && (
-          <div className="absolute bottom-4 left-4 bg-background/90 backdrop-blur-sm rounded-lg p-3 text-xs border shadow-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-3 h-3 rounded-full bg-emerald-500 border border-white" />
-              <span>Image location</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-blue-500 border border-white" />
-              <span>Selected</span>
-            </div>
-            {geoImages.some((img) => img.exif?.heading !== undefined) && (
-              <div className="flex items-center gap-2 mt-2 pt-2 border-t">
-                <Navigation className="h-3 w-3" />
-                <span>Arrow shows heading</span>
+          <div className="absolute bottom-4 left-4 bg-black/80 border border-border px-3 py-2 z-10">
+            <div className="flex items-center gap-4 text-[10px] uppercase tracking-wider">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 bg-[#00ff88]" />
+                <span>{geoImages.length} points</span>
               </div>
-            )}
+              {is3D && (
+                <div className="flex items-center gap-1.5 text-[#00ccff]">
+                  <Mountain className="h-3 w-3" />
+                  <span>3D</span>
+                </div>
+              )}
+            </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
-
