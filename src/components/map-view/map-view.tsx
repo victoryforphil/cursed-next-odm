@@ -46,6 +46,7 @@ export function MapView({
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
+  const terrainInitialized = useRef(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [is3D, setIs3D] = useState(true);
 
@@ -81,27 +82,32 @@ export function MapView({
     );
   }, [geoImages]);
 
-  // Initialize map
+  // Initialize map (only once)
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
-    const bounds = getBounds();
-    const center: [number, number] = bounds
-      ? [
-          (bounds.getWest() + bounds.getEast()) / 2,
-          (bounds.getSouth() + bounds.getNorth()) / 2,
-        ]
-      : [-98.5795, 39.8283];
+    const container = mapContainer.current;
+    const center: [number, number] = [-98.5795, 39.8283]; // Default center
 
     map.current = new mapboxgl.Map({
-      container: mapContainer.current,
+      container: container,
       style: MAPBOX_STYLE,
       center,
-      zoom: bounds ? 14 : 4,
-      pitch: 60, // Enable 3D pitch
+      zoom: 4,
+      pitch: 60,
       bearing: -20,
       attributionControl: false,
       antialias: true,
+    });
+
+    // Handle style errors
+    map.current.on('error', (e) => {
+      console.error('Map error:', e.error);
+      // Fallback to default style if custom style fails
+      if (e.error && e.error.message?.includes('style')) {
+        console.warn('Falling back to default satellite style');
+        map.current?.setStyle('mapbox://styles/mapbox/satellite-v9');
+      }
     });
 
     map.current.addControl(
@@ -109,51 +115,88 @@ export function MapView({
       'bottom-right'
     );
 
-    // Add navigation control
     map.current.addControl(
       new mapboxgl.NavigationControl({ visualizePitch: true }),
       'bottom-right'
     );
 
+    const setupTerrain = () => {
+      if (!map.current || terrainInitialized.current) return;
+
+      try {
+        // Check if source already exists before adding
+        if (!map.current.getSource('mapbox-dem')) {
+          map.current.addSource('mapbox-dem', {
+            type: 'raster-dem',
+            url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+            tileSize: 512,
+            maxzoom: 14,
+          });
+        }
+
+        // Enable 3D terrain
+        map.current.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+
+        // Add sky layer for atmosphere
+        if (!map.current.getLayer('sky')) {
+          map.current.addLayer({
+            id: 'sky',
+            type: 'sky',
+            paint: {
+              'sky-type': 'atmosphere',
+              'sky-atmosphere-sun': [0.0, 90.0],
+              'sky-atmosphere-sun-intensity': 15,
+            },
+          });
+        }
+
+        terrainInitialized.current = true;
+      } catch (error) {
+        console.warn('Terrain setup failed:', error);
+      }
+    };
+
     map.current.on('style.load', () => {
-      if (!map.current) return;
-
-      // Add terrain source for 3D
-      map.current.addSource('mapbox-dem', {
-        type: 'raster-dem',
-        url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-        tileSize: 512,
-        maxzoom: 14,
-      });
-
-      // Enable 3D terrain
-      map.current.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
-
-      // Add sky layer for atmosphere
-      map.current.addLayer({
-        id: 'sky',
-        type: 'sky',
-        paint: {
-          'sky-type': 'atmosphere',
-          'sky-atmosphere-sun': [0.0, 90.0],
-          'sky-atmosphere-sun-intensity': 15,
-        },
-      });
-
+      setupTerrain();
       setMapLoaded(true);
+      // Resize map to ensure it renders properly
+      setTimeout(() => {
+        map.current?.resize();
+      }, 100);
+    });
 
-      if (bounds && map.current) {
-        map.current.fitBounds(bounds, { padding: 50, pitch: 60, bearing: -20 });
+    // Also try on load event as fallback
+    map.current.on('load', () => {
+      if (!mapLoaded) {
+        setupTerrain();
+        setMapLoaded(true);
+      }
+      // Resize map to ensure it renders properly
+      setTimeout(() => {
+        map.current?.resize();
+      }, 100);
+    });
+
+    // Handle container resize
+    const resizeObserver = new ResizeObserver(() => {
+      if (map.current) {
+        map.current.resize();
       }
     });
 
+    if (container) {
+      resizeObserver.observe(container);
+    }
+
     return () => {
+      resizeObserver.disconnect();
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current.clear();
+      terrainInitialized.current = false;
       map.current?.remove();
       map.current = null;
     };
-  }, []);
+  }, []); // Only run once on mount
 
   // Update markers when images change
   useEffect(() => {
@@ -263,7 +306,7 @@ export function MapView({
   return (
     <div className={cn('h-full w-full flex flex-col', className)}>
       {/* Map Container */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative min-h-0">
         {geoImages.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground bg-black/80 z-10">
             <Navigation className="h-12 w-12 mb-4 opacity-30" />
@@ -274,7 +317,11 @@ export function MapView({
           </div>
         )}
         
-        <div ref={mapContainer} className="absolute inset-0" />
+        <div 
+          ref={mapContainer} 
+          className="absolute inset-0 w-full h-full"
+          style={{ minHeight: '400px' }}
+        />
 
         {/* Controls */}
         <div className="absolute top-4 left-4 flex flex-col gap-1 z-10">
