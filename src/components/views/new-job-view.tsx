@@ -22,6 +22,11 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable';
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -133,62 +138,77 @@ export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobVie
   const gpsCount = selectedFiles.filter(f => f.exif?.latitude !== undefined).length;
 
   return (
-    <div className="flex-1 flex overflow-hidden">
-      {/* Left: File Browser */}
-      <div className="w-[400px] border-r flex flex-col bg-card">
-        <div className="p-4 border-b">
-          <h2 className="text-sm font-bold uppercase tracking-wider">Select Images</h2>
-          <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
-            Drag & drop or browse files
-          </p>
-        </div>
-        <div className="flex-1 overflow-hidden p-4">
-          <FileBrowser
-            selectedFiles={selectedFiles}
-            setSelectedFiles={setSelectedFiles}
-          />
-        </div>
-        {selectedFiles.length > 0 && (
-          <div className="p-4 border-t bg-accent/50">
-            <div className="flex items-center justify-between text-xs uppercase tracking-wider">
-              <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1.5">
-                  <ImageIcon className="h-3 w-3" />
-                  {selectedFiles.length}
-                </span>
-                <span className="flex items-center gap-1.5 text-[#00ff88]">
-                  <MapPin className="h-3 w-3" />
-                  {gpsCount} GPS
-                </span>
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Top: File Browser + Map (Horizontal) */}
+      <ResizablePanelGroup direction="vertical" className="flex-1">
+        <ResizablePanel defaultSize={60} minSize={30}>
+          <ResizablePanelGroup direction="horizontal">
+            {/* Left: File Browser */}
+            <ResizablePanel defaultSize={35} minSize={20} maxSize={50}>
+              <div className="h-full flex flex-col bg-card">
+                <div className="p-4 border-b">
+                  <h2 className="text-sm font-bold uppercase tracking-wider">Select Images</h2>
+                  <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
+                    Drag & drop or browse files
+                  </p>
+                </div>
+                <div className="flex-1 overflow-hidden p-4">
+                  <FileBrowser
+                    selectedFiles={selectedFiles}
+                    setSelectedFiles={setSelectedFiles}
+                  />
+                </div>
+                {selectedFiles.length > 0 && (
+                  <div className="p-4 border-t bg-accent/50">
+                    <div className="flex items-center justify-between text-xs uppercase tracking-wider">
+                      <div className="flex items-center gap-4">
+                        <span className="flex items-center gap-1.5">
+                          <ImageIcon className="h-3 w-3" />
+                          {selectedFiles.length}
+                        </span>
+                        <span className="flex items-center gap-1.5 text-[#00ff88]">
+                          <MapPin className="h-3 w-3" />
+                          {gpsCount} GPS
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-xs uppercase"
+                        onClick={() => setSelectedFiles([])}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-xs uppercase"
-                onClick={() => setSelectedFiles([])}
-              >
-                Clear
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
+            </ResizablePanel>
 
-      {/* Center: Map */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 border-b bg-card">
-          <h2 className="text-sm font-bold uppercase tracking-wider">Image Locations</h2>
-          <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
-            {gpsCount > 0 ? `${gpsCount} images with coordinates` : 'No GPS data available'}
-          </p>
-        </div>
-        <div className="flex-1 relative">
-          <MapView images={selectedFiles} className="absolute inset-0" />
-        </div>
-      </div>
+            <ResizableHandle withHandle />
 
-      {/* Right: Options Panel */}
-      <div className="w-[380px] border-l flex flex-col bg-card">
+            {/* Right: Map */}
+            <ResizablePanel defaultSize={65} minSize={50}>
+              <div className="h-full flex flex-col overflow-hidden">
+                <div className="p-4 border-b bg-card">
+                  <h2 className="text-sm font-bold uppercase tracking-wider">Image Locations</h2>
+                  <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
+                    {gpsCount > 0 ? `${gpsCount} images with coordinates` : 'No GPS data available'}
+                  </p>
+                </div>
+                <div className="flex-1 relative min-h-0">
+                  <MapView images={selectedFiles} className="absolute inset-0" />
+                </div>
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </ResizablePanel>
+
+        <ResizableHandle withHandle />
+
+        {/* Bottom: Configuration Panel */}
+        <ResizablePanel defaultSize={40} minSize={20}>
+          <div className="h-full flex flex-col bg-card">
         <div className="p-4 border-b">
           <h2 className="text-sm font-bold uppercase tracking-wider">Job Configuration</h2>
           <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
@@ -373,7 +393,9 @@ export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobVie
             </p>
           )}
         </div>
-      </div>
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }
