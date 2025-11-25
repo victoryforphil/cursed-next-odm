@@ -18,12 +18,10 @@ import {
   Trash2,
   Download,
   MoreVertical,
-  Search,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import {
   DropdownMenu,
@@ -83,13 +81,12 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeView, setActiveView] = useState<View>('new-job');
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
-  const [jobSearchQuery, setJobSearchQuery] = useState('');
 
   // Count running tasks
   const runningTasks = tasks.filter(t => t.status.code === 20).length;
   const queuedTasks = tasks.filter(t => t.status.code === 10).length;
 
-  // Sort and filter tasks
+  // Sort tasks
   const sortedTasks = [...tasks].sort((a, b) => {
     const order = { 20: 0, 10: 1, 30: 2, 40: 3, 50: 4 };
     const aOrder = order[a.status.code] ?? 5;
@@ -97,12 +94,6 @@ export default function Home() {
     if (aOrder !== bOrder) return aOrder - bOrder;
     return b.dateCreated - a.dateCreated;
   });
-
-  const filteredTasks = sortedTasks.filter(t => 
-    !jobSearchQuery || 
-    t.name?.toLowerCase().includes(jobSearchQuery.toLowerCase()) ||
-    t.uuid.toLowerCase().includes(jobSearchQuery.toLowerCase())
-  );
 
   // Auto-select first running task when tasks change
   useEffect(() => {
@@ -241,22 +232,9 @@ export default function Home() {
               )} />
             </button>
 
-            {/* Job List as nested children */}
+            {/* Job List as nested children - Auto-expanded */}
             {activeView === 'job-status' && (
               <div className="pl-4 pr-2 pb-2">
-                {/* Search */}
-                <div className="mb-2">
-                  <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                    <Input
-                      placeholder="Search jobs..."
-                      value={jobSearchQuery}
-                      onChange={(e) => setJobSearchQuery(e.target.value)}
-                      className="pl-7 h-7 text-xs bg-input border-border"
-                    />
-                  </div>
-                </div>
-
                 {/* Refresh button */}
                 <div className="mb-2 flex justify-end">
                   <Button
@@ -271,14 +249,14 @@ export default function Home() {
                 </div>
 
                 {/* Task List */}
-                {filteredTasks.length === 0 ? (
+                {sortedTasks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
                     <Activity className="h-6 w-6 mb-2 opacity-30" />
                     <p className="text-[10px] uppercase tracking-wider">No jobs found</p>
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    {filteredTasks.map((task) => {
+                    {sortedTasks.map((task) => {
                       const status = statusConfig[task.status.code];
                       const StatusIcon = status.icon;
                       const isRunning = task.status.code === 20;

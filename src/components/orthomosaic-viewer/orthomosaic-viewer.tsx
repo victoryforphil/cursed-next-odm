@@ -234,8 +234,8 @@ export function OrthomosaicViewer({
     if (loadedUrl) {
       window.open(loadedUrl, '_blank');
     } else if (taskId) {
-      // Try to download the first format
-      window.open(`${baseUrl}/task/${taskId}/download/orthomosaic.tif`, '_blank');
+      // Download the GeoTIFF version (better quality for GIS software)
+      window.open(`${baseUrl}/task/${taskId}/download/odm_orthophoto/odm_orthophoto.tif`, '_blank');
     }
   }, [loadedUrl, taskId, baseUrl]);
 
