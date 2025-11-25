@@ -210,22 +210,23 @@ export function MapView({
     geoImages.forEach((img) => {
       const el = document.createElement('div');
       el.className = 'map-marker';
+      const isSelected = selectedImageId === img.id;
       el.style.cssText = `
         width: 12px;
         height: 12px;
-        background: ${selectedImageId === img.id ? '#00ccff' : '#00ff88'};
+        background: ${isSelected ? '#00ccff' : '#ffffff'};
         border: 2px solid #000;
         cursor: pointer;
-        box-shadow: 0 0 10px ${selectedImageId === img.id ? '#00ccff' : '#00ff88'};
+        box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
         transition: box-shadow 0.15s ease-out;
       `;
 
       el.addEventListener('mouseenter', () => {
-        el.style.boxShadow = `0 0 20px ${selectedImageId === img.id ? '#00ccff' : '#00ff88'}`;
+        el.style.boxShadow = `0 0 8px rgba(255, 255, 255, 0.8)`;
       });
 
       el.addEventListener('mouseleave', () => {
-        el.style.boxShadow = `0 0 10px ${selectedImageId === img.id ? '#00ccff' : '#00ff88'}`;
+        el.style.boxShadow = `0 0 4px rgba(255, 255, 255, 0.6)`;
       });
 
       el.addEventListener('click', () => {
@@ -386,7 +387,7 @@ export function MapView({
           <div className="absolute bottom-4 left-4 bg-black/80 border border-border px-3 py-2 z-10">
             <div className="flex items-center gap-4 text-[10px] uppercase tracking-wider">
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 bg-[#00ff88]" />
+                <div className="w-2 h-2 bg-white" />
                 <span>{geoImages.length} points</span>
               </div>
               {is3D && (
