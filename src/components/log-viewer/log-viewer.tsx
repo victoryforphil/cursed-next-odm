@@ -29,10 +29,10 @@ interface LogViewerProps {
 }
 
 // Parse log line to extract level and format
-function parseLogLine(line: string): {
+function parseLogLine(line: string, index: number, totalLogs: number): {
   level: 'info' | 'warning' | 'error' | 'debug' | 'success';
   content: string;
-  timestamp?: string;
+  timestamp: string;
 } {
   const lowered = line.toLowerCase();
   
@@ -48,13 +48,25 @@ function parseLogLine(line: string): {
     level = 'success';
   }
   
-  // Try to extract timestamp
+  // Try to extract timestamp from line
+  let timestamp: string | undefined;
   const timestampMatch = line.match(/^\[(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}[^\]]*)\]/);
+  if (timestampMatch) {
+    timestamp = timestampMatch[1];
+  }
+  
+  // If no timestamp found, generate one based on position (newest first)
+  if (!timestamp) {
+    const now = new Date();
+    const offset = totalLogs - index - 1; // Since we reversed, newest is at index 0
+    const logTime = new Date(now.getTime() - offset * 1000); // Approximate 1 second per log
+    timestamp = logTime.toISOString().replace('T', ' ').substring(0, 19);
+  }
   
   return {
     level,
     content: timestampMatch ? line.slice(timestampMatch[0].length).trim() : line,
-    timestamp: timestampMatch?.[1],
+    timestamp,
   };
 }
 
@@ -84,15 +96,18 @@ export function LogViewer({
   const autoScroll = externalAutoScroll ?? internalAutoScroll;
   const setAutoScroll = onAutoScrollChange ?? setInternalAutoScroll;
 
-  // Auto-scroll to bottom
+  // Auto-scroll to top (newest on top)
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       const scrollContainer = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
       if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        scrollContainer.scrollTop = 0;
       }
     }
   }, [logs, autoScroll]);
+
+  // Reverse logs so newest is on top, truncate if needed
+  const displayLogs = [...logs].reverse().slice(0, maxLines);
 
   // Search functionality
   useEffect(() => {
@@ -103,13 +118,13 @@ export function LogViewer({
     
     const query = searchQuery.toLowerCase();
     const matches = new Set<number>();
-    logs.forEach((line, index) => {
+    displayLogs.forEach((line, index) => {
       if (line.toLowerCase().includes(query)) {
         matches.add(index);
       }
     });
     setHighlightedLines(matches);
-  }, [searchQuery, logs]);
+  }, [searchQuery, logs, maxLines]);
 
   // Copy logs to clipboard
   const handleCopy = useCallback(async () => {
@@ -122,12 +137,12 @@ export function LogViewer({
     }
   }, [logs]);
 
-  // Scroll to bottom
-  const scrollToBottom = useCallback(() => {
+  // Scroll to top (newest on top)
+  const scrollToTop = useCallback(() => {
     if (scrollRef.current) {
       const scrollContainer = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
       if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        scrollContainer.scrollTop = 0;
       }
     }
     setAutoScroll(true);
@@ -138,17 +153,16 @@ export function LogViewer({
     if (scrollRef.current) {
       const scrollContainer = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
       if (scrollContainer) {
-        const isAtBottom = 
-          scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight < 50;
-        if (!isAtBottom && autoScroll) {
+        const isAtTop = scrollContainer.scrollTop < 50;
+        if (!isAtTop && autoScroll) {
           setAutoScroll(false);
         }
       }
     }
   }, [autoScroll, setAutoScroll]);
 
-  // Truncate logs if needed
-  const displayLogs = logs.slice(-maxLines);
+  // Reverse logs so newest is on top, truncate if needed
+  const displayLogs = [...logs].reverse().slice(0, maxLines);
 
   return (
     <Card className={cn('h-full flex flex-col', className)}>
@@ -201,9 +215,9 @@ export function LogViewer({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                onClick={scrollToBottom}
+                onClick={scrollToTop}
               >
-                <ArrowDown className="h-4 w-4" />
+                <ArrowDown className="h-4 w-4 rotate-180" />
               </Button>
             )}
           </div>
@@ -257,24 +271,22 @@ export function LogViewer({
               </div>
             ) : (
               displayLogs.map((line, index) => {
-                const { level, content, timestamp } = parseLogLine(line);
-                const isHighlighted = highlightedLines.has(logs.length - displayLogs.length + index);
+                const { level, content, timestamp } = parseLogLine(line, index, logs.length);
+                const isHighlighted = highlightedLines.has(index);
                 
                 return (
                   <div
-                    key={index}
+                    key={`${logs.length - index}-${index}`}
                     className={cn(
-                      'py-0.5 px-2 -mx-2 rounded',
+                      'py-0.5 px-2 -mx-2 rounded flex items-start gap-2',
                       isHighlighted && 'bg-yellow-500/20',
                       levelColors[level]
                     )}
                   >
-                    {timestamp && (
-                      <span className="text-muted-foreground mr-2">
-                        [{timestamp}]
-                      </span>
-                    )}
-                    <span className="whitespace-pre-wrap break-all">
+                    <span className="text-muted-foreground flex-shrink-0 text-[10px]">
+                      [{timestamp}]
+                    </span>
+                    <span className="whitespace-pre-wrap break-words flex-1 min-w-0">
                       {content || line}
                     </span>
                   </div>

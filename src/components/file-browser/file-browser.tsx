@@ -41,14 +41,24 @@ function FileBrowserComponent({
 
   // Build tree structure from files
   const buildFileTree = useCallback(
-    (files: Map<string, { file: File; imageFile: ImageFile }>): FileNode[] => {
+    (files: Map<string, { file: File; imageFile: ImageFile }>, selectedFilesWithStatus: ImageFile[] = []): FileNode[] => {
       const root: Map<string, FileNode> = new Map();
+      
+      // Create a map of selected files with status by ID for quick lookup
+      const statusMap = new Map<string, ImageFile>();
+      selectedFilesWithStatus.forEach(file => {
+        statusMap.set(file.id, file);
+      });
 
       files.forEach(({ imageFile }, id) => {
+        // Merge upload status from selectedFiles if available
+        const statusFile = statusMap.get(id);
+        const nodeData = statusFile ? { ...imageFile, ...statusFile } : imageFile;
+        
         const pathParts = imageFile.path.split('/').filter(Boolean);
 
         if (pathParts.length === 1) {
-          root.set(id, { ...imageFile, id });
+          root.set(id, { ...nodeData, id });
         } else {
           let currentLevel = root;
           let currentPath = '';
@@ -73,7 +83,7 @@ function FileBrowserComponent({
             if (!folder.children) folder.children = [];
 
             if (i === pathParts.length - 2) {
-              folder.children.push({ ...imageFile, id });
+              folder.children.push({ ...nodeData, id });
             } else {
               const childMap = new Map<string, FileNode>();
               folder.children.forEach((child) => childMap.set(child.id, child));
@@ -97,8 +107,15 @@ function FileBrowserComponent({
 
       return sortNodes(Array.from(root.values()));
     },
-    []
+    [selectedFiles]
   );
+
+  // Rebuild tree when selectedFiles changes (to update upload status)
+  React.useEffect(() => {
+    if (allFiles.size > 0) {
+      setFileTree(buildFileTree(allFiles, selectedFiles));
+    }
+  }, [selectedFiles, allFiles, buildFileTree]);
 
   // Process dropped/selected files
   const processNewFiles = useCallback(
@@ -145,7 +162,7 @@ function FileBrowserComponent({
       }
 
       setAllFiles(newFilesMap);
-      setFileTree(buildFileTree(newFilesMap));
+      setFileTree(buildFileTree(newFilesMap, selectedFiles));
       setIsProcessing(false);
       setProcessStatus(`${newFilesMap.size} IMAGES LOADED`);
     },

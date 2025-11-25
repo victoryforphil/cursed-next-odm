@@ -430,8 +430,14 @@ export const MapView = memo(MapViewComponent, (prevProps, nextProps) => {
   if (prevProps.images.length !== nextProps.images.length) return false;
   if (prevProps.selectedImageId !== nextProps.selectedImageId) return false;
   if (prevProps.className !== nextProps.className) return false;
-  // Check if images array contents changed
-  const imagesChanged = prevProps.images.length !== nextProps.images.length ||
-    prevProps.images.some((img, i) => img.id !== nextProps.images[i]?.id);
+  // Check if images array contents changed (including uploadStatus and uploadProgress)
+  const imagesChanged = prevProps.images.some((img, i) => {
+    const nextImg = nextProps.images[i];
+    if (!nextImg) return true;
+    if (img.id !== nextImg.id) return true;
+    if (img.uploadStatus !== nextImg.uploadStatus) return true;
+    if (img.uploadProgress !== nextImg.uploadProgress) return true;
+    return false;
+  });
   return !imagesChanged; // Return true if images didn't change (skip render)
 });
