@@ -44,56 +44,111 @@ export function OrthomosaicViewer({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 
-  // Construct orthomosaic URL
-  const orthoUrl = url || (taskId ? `${baseUrl}/task/${taskId}/download/orthomosaic.tif` : null);
+  // Try multiple orthomosaic formats (PNG first as browsers support it better)
+  const orthoFormats = [
+    'orthomosaic.png',
+    'odm_orthophoto.png',
+    'orthophoto.png',
+    'orthomosaic.tif',
+    'odm_orthophoto.tif',
+    'orthophoto.tif',
+  ];
 
-  // Load orthomosaic image
+  // Load orthomosaic image - try multiple formats
   useEffect(() => {
-    if (!orthoUrl) return;
+    if (!taskId && !url) return;
 
     setIsLoading(true);
     setError(null);
+    setLoadedUrl(null);
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
+    const tryLoadImage = async (imageUrl: string): Promise<boolean> => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        let resolved = false;
+        
+        // Set timeout to avoid hanging
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve(false);
+          }
+        }, 5000);
+        
+        img.onload = () => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeout);
+          
+          setImageSize({ width: img.width, height: img.height });
+          setIsLoading(false);
+          setLoadedUrl(imageUrl);
+          if (imageRef.current) {
+            imageRef.current.src = imageUrl;
+          }
+          
+          // Center image initially
+          if (containerRef.current) {
+            const container = containerRef.current;
+            const containerRect = container.getBoundingClientRect();
+            const initialScale = Math.min(
+              containerRect.width / img.width,
+              containerRect.height / img.height,
+              1
+            );
+            setScale(initialScale);
+            setPosition({
+              x: (containerRect.width - img.width * initialScale) / 2,
+              y: (containerRect.height - img.height * initialScale) / 2,
+            });
+          }
+          resolve(true);
+        };
 
-    img.onload = () => {
-      setImageSize({ width: img.width, height: img.height });
-      setIsLoading(false);
-      
-      // Center image initially
-      if (containerRef.current && imageRef.current) {
-        const container = containerRef.current;
-        const containerRect = container.getBoundingClientRect();
-        const initialScale = Math.min(
-          containerRect.width / img.width,
-          containerRect.height / img.height,
-          1
+        img.onerror = () => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeout);
+          resolve(false);
+        };
+
+        img.src = imageUrl;
+      });
+    };
+
+    const loadOrthomosaic = async () => {
+      if (url) {
+        // Direct URL provided
+        const success = await tryLoadImage(url);
+        if (!success) {
+          setError('Failed to load orthomosaic from provided URL');
+          setIsLoading(false);
+        }
+      } else if (taskId) {
+        // Try each format
+        for (const format of orthoFormats) {
+          const imageUrl = `${baseUrl}/task/${taskId}/download/${format}`;
+          const success = await tryLoadImage(imageUrl);
+          if (success) {
+            return; // Successfully loaded
+          }
+        }
+        // If we get here, none of the formats worked
+        setError(
+          `Orthomosaic not found.\n` +
+          `Tried formats: ${orthoFormats.join(', ')}\n` +
+          `Base URL: ${baseUrl}\n` +
+          `Task ID: ${taskId}\n` +
+          `Make sure the task is completed and orthomosaic was generated.`
         );
-        setScale(initialScale);
-        setPosition({
-          x: (containerRect.width - img.width * initialScale) / 2,
-          y: (containerRect.height - img.height * initialScale) / 2,
-        });
+        setIsLoading(false);
       }
     };
 
-    img.onerror = () => {
-      setError('Failed to load orthomosaic');
-      setIsLoading(false);
-    };
-
-    img.src = orthoUrl;
-    if (imageRef.current) {
-      imageRef.current.src = orthoUrl;
-    }
-
-    return () => {
-      img.onload = null;
-      img.onerror = null;
-    };
-  }, [orthoUrl]);
+    loadOrthomosaic();
+  }, [taskId, url, baseUrl]);
 
   // Mouse drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -152,12 +207,15 @@ export function OrthomosaicViewer({
   }, []);
 
   const handleDownload = useCallback(() => {
-    if (orthoUrl) {
-      window.open(orthoUrl, '_blank');
+    if (loadedUrl) {
+      window.open(loadedUrl, '_blank');
+    } else if (taskId) {
+      // Try to download the first format
+      window.open(`${baseUrl}/task/${taskId}/download/orthomosaic.tif`, '_blank');
     }
-  }, [orthoUrl]);
+  }, [loadedUrl, taskId, baseUrl]);
 
-  if (!orthoUrl) {
+  if (!taskId && !url) {
     return (
       <div className={cn('h-full flex flex-col items-center justify-center bg-card', className)}>
         <div className="text-center text-muted-foreground">
@@ -273,18 +331,18 @@ export function OrthomosaicViewer({
         )}
 
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-            <div className="text-center text-destructive">
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10 p-4">
+            <div className="text-center text-destructive max-w-md">
               <AlertCircle className="h-8 w-8 mx-auto mb-2" />
-              <p className="text-sm">{error}</p>
+              <p className="text-xs whitespace-pre-wrap font-mono">{error}</p>
             </div>
           </div>
         )}
 
-        {!isLoading && !error && (
+        {!isLoading && !error && loadedUrl && (
           <img
             ref={imageRef}
-            src={orthoUrl}
+            src={loadedUrl}
             alt="Orthomosaic"
             className="absolute select-none"
             style={{
