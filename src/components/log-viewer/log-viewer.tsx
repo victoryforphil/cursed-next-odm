@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   Terminal,
   ArrowDown,
@@ -107,7 +107,9 @@ export function LogViewer({
   }, [logs, autoScroll]);
 
   // Reverse logs so newest is first, then take first N lines
-  const displayLogs = [...logs].reverse().slice(0, maxLines);
+  const displayLogs = useMemo(() => {
+    return [...logs].reverse().slice(0, maxLines);
+  }, [logs, maxLines]);
 
   // Search functionality
   useEffect(() => {
@@ -124,7 +126,7 @@ export function LogViewer({
       }
     });
     setHighlightedLines(matches);
-  }, [searchQuery, logs, maxLines, displayLogs]);
+  }, [searchQuery, displayLogs]);
 
   // Copy logs to clipboard
   const handleCopy = useCallback(async () => {

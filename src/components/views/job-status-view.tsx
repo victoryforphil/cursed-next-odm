@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Activity,
   Clock,
-  Play,
   CheckCircle2,
   XCircle,
   AlertCircle,
@@ -12,13 +11,9 @@ import {
   RefreshCw,
   Trash2,
   Download,
-  Terminal,
   Box,
   MoreVertical,
   Search,
-  Copy,
-  Pause,
-  ArrowDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,8 +27,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { PointCloudViewer } from '@/components/pointcloud-viewer';
+import { LogViewer } from '@/components/log-viewer';
 import type { TaskInfo, TaskStatusCode } from '@/lib/types/nodeodm';
-import { TaskStatusMap } from '@/lib/types/nodeodm';
 
 interface JobStatusViewProps {
   tasks: TaskInfo[];
@@ -65,10 +60,6 @@ function formatDuration(ms: number): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
-function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleString();
-}
-
 export function JobStatusView({
   tasks,
   isLoading,
@@ -82,8 +73,6 @@ export function JobStatusView({
 }: JobStatusViewProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
   const [taskLogs, setTaskLogs] = useState<string[]>([]);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [copied, setCopied] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const selectedTask = tasks.find(t => t.uuid === selectedTaskId);
@@ -133,11 +122,6 @@ export function JobStatusView({
     }
   }, [tasks, selectedTaskId]);
 
-  const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(taskLogs.join('\n'));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [taskLogs]);
 
   return (
     <div className="flex-1 flex overflow-hidden">
@@ -273,65 +257,11 @@ export function JobStatusView({
 
       {/* Center: Console Output */}
       <div className="flex-1 flex flex-col bg-black">
-        <div className="p-4 border-b border-border flex items-center justify-between bg-card">
-          <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
-              <Terminal className="h-4 w-4" />
-              Console Output
-            </h2>
-            <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
-              {selectedTask?.name || 'Select a job'}
-            </p>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleCopy}>
-              {copied ? <CheckCircle2 className="h-4 w-4 text-[#00ff88]" /> : <Copy className="h-4 w-4" />}
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-8 w-8" 
-              onClick={() => setAutoScroll(!autoScroll)}
-            >
-              {autoScroll ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
-          {taskLogs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <Terminal className="h-12 w-12 mb-4 opacity-30" />
-              <p className="text-xs uppercase tracking-wider">No output yet</p>
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              {taskLogs.map((line, i) => {
-                const isError = line.toLowerCase().includes('error') || line.toLowerCase().includes('failed');
-                const isWarning = line.toLowerCase().includes('warning') || line.toLowerCase().includes('warn');
-                const isSuccess = line.toLowerCase().includes('success') || line.toLowerCase().includes('completed');
-                
-                return (
-                  <div
-                    key={i}
-                    className={cn(
-                      'py-0.5 whitespace-pre-wrap break-all',
-                      isError && 'text-[#ff3333]',
-                      isWarning && 'text-[#ffcc00]',
-                      isSuccess && 'text-[#00ff88]',
-                      !isError && !isWarning && !isSuccess && 'text-muted-foreground'
-                    )}
-                  >
-                    <span className="text-muted-foreground/50 mr-2 select-none">
-                      {String(i + 1).padStart(4, '0')}
-                    </span>
-                    {line}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <LogViewer
+          logs={taskLogs}
+          title={selectedTask?.name || 'Console Output'}
+          className="h-full"
+        />
       </div>
 
       {/* Right: Point Cloud / Results */}
