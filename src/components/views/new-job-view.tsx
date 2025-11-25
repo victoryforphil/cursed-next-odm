@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
+import { Progress } from '@/components/ui/progress';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -35,11 +36,12 @@ import {
 import { cn } from '@/lib/utils';
 import { MapView } from '@/components/map-view';
 import { FileBrowser } from '@/components/file-browser';
-import type { ODMOption, TaskOption, ImageFile } from '@/lib/types/nodeodm';
+import type { ODMOption, TaskOption, ImageFile, UploadStatus } from '@/lib/types/nodeodm';
 
 interface NewJobViewProps {
   odmOptions: ODMOption[];
   isConnected: boolean;
+  onCreateTask: (files: File[], name: string, options: TaskOption[]) => Promise<string | null>;
   onTaskCreated: () => void;
 }
 
@@ -69,14 +71,17 @@ function categorizeOption(name: string): string {
   return 'OTHER';
 }
 
-export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobViewProps) {
+export function NewJobView({ odmOptions, isConnected, onCreateTask, onTaskCreated }: NewJobViewProps) {
   const [selectedFiles, setSelectedFiles] = useState<ImageFile[]>([]);
+  const [selectedFileObjects, setSelectedFileObjects] = useState<Map<string, File>>(new Map());
+  const [uploadStatus, setUploadStatus] = useState<Map<string, { status: UploadStatus; progress: number }>>(new Map());
   const [taskName, setTaskName] = useState('');
   const [selectedPreset, setSelectedPreset] = useState(1);
   const [customOptions, setCustomOptions] = useState<Map<string, string | number | boolean>>(new Map());
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['QUALITY', 'OUTPUT']));
   const [isCreating, setIsCreating] = useState(false);
+  const [overallProgress, setOverallProgress] = useState(0);
 
   // Group options
   const groupedOptions = useMemo(() => {
@@ -126,16 +131,150 @@ export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobVie
     });
   }, []);
 
-  const handleCreate = useCallback(async () => {
-    if (selectedFiles.length === 0) return;
-    setIsCreating(true);
-    // Simulate - in real app would call API
-    await new Promise(r => setTimeout(r, 1500));
-    setIsCreating(false);
-    onTaskCreated();
-  }, [selectedFiles, onTaskCreated]);
+  const handleFilesWithDataSelected = useCallback((files: { imageFile: ImageFile; file: File }[]) => {
+    const fileMap = new Map<string, File>();
+    files.forEach(({ imageFile, file }) => {
+      fileMap.set(imageFile.id, file);
+    });
+    setSelectedFileObjects(fileMap);
+  }, []);
 
-  const gpsCount = selectedFiles.filter(f => f.exif?.latitude !== undefined).length;
+  const handleClearFiles = useCallback(() => {
+    setSelectedFiles([]);
+    setSelectedFileObjects(new Map());
+  }, []);
+
+  const handleCreate = useCallback(async () => {
+    if (selectedFiles.length === 0 || !isConnected) return;
+    
+    // Get File objects in the same order as selectedFiles
+    const files: File[] = [];
+    const fileIdMap = new Map<File, string>(); // Map File to ImageFile id
+    selectedFiles.forEach((imageFile) => {
+      const file = selectedFileObjects.get(imageFile.id);
+      if (file) {
+        files.push(file);
+        fileIdMap.set(file, imageFile.id);
+      }
+    });
+
+    if (files.length === 0) {
+      console.error('No file objects available for upload');
+      return;
+    }
+
+    setIsCreating(true);
+    setOverallProgress(0);
+    
+    // Initialize upload status for all files
+    const initialStatus = new Map<string, { status: UploadStatus; progress: number }>();
+    selectedFiles.forEach((imageFile) => {
+      initialStatus.set(imageFile.id, { status: 'pending', progress: 0 });
+    });
+    setUploadStatus(initialStatus);
+
+    try {
+      const options: TaskOption[] = Array.from(customOptions.entries()).map(
+        ([name, value]) => ({ name, value })
+      );
+      const name = taskName.trim() || `Task ${new Date().toLocaleString()}`;
+      
+      // Track upload progress
+      const updateFileProgress = (fileId: string, progress: number, status: UploadStatus) => {
+        setUploadStatus((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(fileId, { status, progress });
+          
+          // Calculate overall progress
+          let totalProgress = 0;
+          newMap.forEach(({ progress: p }) => {
+            totalProgress += p;
+          });
+          setOverallProgress((totalProgress / selectedFiles.length) || 0);
+          
+          return newMap;
+        });
+      };
+
+      // Simulate per-file upload progress
+      const uploadWithProgress = async () => {
+        // Mark all as uploading
+        selectedFiles.forEach((imageFile) => {
+          updateFileProgress(imageFile.id, 0, 'uploading');
+        });
+
+        // Simulate chunked upload with progress
+        const chunkSize = 5;
+        for (let i = 0; i < files.length; i += chunkSize) {
+          const chunk = files.slice(i, i + chunkSize);
+          const chunkIds = chunk.map(f => fileIdMap.get(f)!);
+          
+          // Update progress for this chunk
+          chunkIds.forEach((id) => {
+            updateFileProgress(id, 50, 'uploading');
+          });
+          
+          // Small delay to show progress
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        // Mark all as uploaded
+        selectedFiles.forEach((imageFile) => {
+          updateFileProgress(imageFile.id, 100, 'uploaded');
+        });
+      };
+
+      // Start upload progress simulation
+      uploadWithProgress();
+      
+      const taskId = await onCreateTask(files, name, options);
+      
+      if (taskId) {
+        // Mark all as uploaded
+        selectedFiles.forEach((imageFile) => {
+          updateFileProgress(imageFile.id, 100, 'uploaded');
+        });
+        setOverallProgress(100);
+        
+        // Clear status after a delay
+        setTimeout(() => {
+          setUploadStatus(new Map());
+          setOverallProgress(0);
+        }, 2000);
+        
+        onTaskCreated();
+      }
+    } catch (error) {
+      console.error('Failed to create task:', error);
+      // Mark all as error
+      selectedFiles.forEach((imageFile) => {
+        setUploadStatus((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(imageFile.id, { status: 'error', progress: 0 });
+          return newMap;
+        });
+      });
+    } finally {
+      setIsCreating(false);
+    }
+  }, [selectedFiles, selectedFileObjects, taskName, customOptions, isConnected, onCreateTask, onTaskCreated]);
+
+  // Memoize expensive calculations
+  const gpsCount = useMemo(() => {
+    return selectedFiles.filter(f => f.exif?.latitude !== undefined).length;
+  }, [selectedFiles]);
+
+  // Add upload status to files
+  const filesWithUploadStatus = useMemo(() => {
+    return selectedFiles.map(file => {
+      const status = uploadStatus.get(file.id);
+      return {
+        ...file,
+        uploadStatus: status?.status || 'pending',
+        uploadProgress: status?.progress || 0,
+      };
+    });
+  }, [selectedFiles, uploadStatus]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -154,8 +293,9 @@ export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobVie
                 </div>
                 <div className="flex-1 overflow-hidden p-4">
                   <FileBrowser
-                    selectedFiles={selectedFiles}
+                    selectedFiles={filesWithUploadStatus}
                     setSelectedFiles={setSelectedFiles}
+                    onFilesWithDataSelected={handleFilesWithDataSelected}
                   />
                 </div>
                 {selectedFiles.length > 0 && (
@@ -175,7 +315,7 @@ export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobVie
                         variant="ghost"
                         size="sm"
                         className="h-6 text-xs uppercase"
-                        onClick={() => setSelectedFiles([])}
+                        onClick={handleClearFiles}
                       >
                         Clear
                       </Button>
@@ -197,7 +337,7 @@ export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobVie
                   </p>
                 </div>
                 <div className="flex-1 relative min-h-0">
-                  <MapView images={selectedFiles} className="absolute inset-0" />
+                  <MapView images={filesWithUploadStatus} className="absolute inset-0" />
                 </div>
               </div>
             </ResizablePanel>
@@ -215,6 +355,27 @@ export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobVie
             Processing options
           </p>
         </div>
+
+        {/* Upload Progress */}
+        {isCreating && overallProgress > 0 && (
+          <div className="px-4 py-3 border-b bg-accent/30">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider">Uploading Images</span>
+              <span className="text-xs text-muted-foreground">{Math.round(overallProgress)}%</span>
+            </div>
+            <Progress value={overallProgress} className="h-1.5" />
+            <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground uppercase tracking-wider">
+              <span className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 bg-[#00ccff] animate-pulse" />
+                {Array.from(uploadStatus.values()).filter(s => s.status === 'uploading').length} uploading
+              </span>
+              <span className="flex items-center gap-1.5 text-[#00ff88]">
+                <div className="w-1.5 h-1.5 bg-[#00ff88]" />
+                {Array.from(uploadStatus.values()).filter(s => s.status === 'uploaded').length} uploaded
+              </span>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-6">

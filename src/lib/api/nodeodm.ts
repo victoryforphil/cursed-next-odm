@@ -40,11 +40,26 @@ export class NodeODMClient {
     params?: Record<string, string>
   ): Promise<T> {
     const url = this.getUrl(path, params);
+    
+    // Don't set Content-Type for FormData - browser will set it with boundary
+    const headers: HeadersInit = {};
+    if (options?.headers) {
+      if (options.headers instanceof Headers) {
+        options.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+      } else if (Array.isArray(options.headers)) {
+        options.headers.forEach(([key, value]) => {
+          headers[key] = value;
+        });
+      } else {
+        Object.assign(headers, options.headers);
+      }
+    }
+    
     const response = await fetch(url, {
       ...options,
-      headers: {
-        ...options?.headers,
-      },
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
     });
 
     if (!response.ok) {
@@ -200,36 +215,37 @@ export class NodeODMClient {
   }
 
   async cancelTask(uuid: string): Promise<ApiResponse> {
-    const formData = new FormData();
-    formData.append('uuid', uuid);
-
     return this.request<ApiResponse>('/task/cancel', {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ uuid }),
     });
   }
 
   async removeTask(uuid: string): Promise<ApiResponse> {
-    const formData = new FormData();
-    formData.append('uuid', uuid);
-
     return this.request<ApiResponse>('/task/remove', {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ uuid }),
     });
   }
 
   async restartTask(uuid: string, options?: { name: string; value: string | number | boolean }[]): Promise<ApiResponse> {
-    const formData = new FormData();
-    formData.append('uuid', uuid);
-
+    const body: { uuid: string; options?: string } = { uuid };
     if (options) {
-      formData.append('options', JSON.stringify(options));
+      body.options = JSON.stringify(options);
     }
 
     return this.request<ApiResponse>('/task/restart', {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
     });
   }
 

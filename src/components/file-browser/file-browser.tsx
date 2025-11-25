@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, memo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import {
   Upload,
@@ -17,12 +17,14 @@ import type { FileNode, ImageFile } from '@/lib/types/nodeodm';
 
 interface FileBrowserProps {
   onFilesSelected?: (files: ImageFile[]) => void;
+  onFilesWithDataSelected?: (files: { imageFile: ImageFile; file: File }[]) => void;
   selectedFiles: ImageFile[];
   setSelectedFiles: (files: ImageFile[]) => void;
 }
 
-export function FileBrowser({
+function FileBrowserComponent({
   onFilesSelected,
+  onFilesWithDataSelected,
   selectedFiles,
   setSelectedFiles,
 }: FileBrowserProps) {
@@ -197,13 +199,18 @@ export function FileBrowser({
   // Update selected files when selection changes
   React.useEffect(() => {
     const selected: ImageFile[] = [];
+    const selectedWithData: { imageFile: ImageFile; file: File }[] = [];
     selectedIds.forEach((id) => {
       const entry = allFiles.get(id);
-      if (entry) selected.push(entry.imageFile);
+      if (entry) {
+        selected.push(entry.imageFile);
+        selectedWithData.push({ imageFile: entry.imageFile, file: entry.file });
+      }
     });
     setSelectedFiles(selected);
     onFilesSelected?.(selected);
-  }, [selectedIds, allFiles, setSelectedFiles, onFilesSelected]);
+    onFilesWithDataSelected?.(selectedWithData);
+  }, [selectedIds, allFiles, setSelectedFiles, onFilesSelected, onFilesWithDataSelected]);
 
   const handleSelectAll = useCallback(() => {
     const allIds = new Set<string>();
@@ -327,3 +334,5 @@ export function FileBrowser({
     </div>
   );
 }
+
+export const FileBrowser = memo(FileBrowserComponent);

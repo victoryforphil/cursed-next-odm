@@ -8,6 +8,9 @@ import {
   FolderOpen,
   Image as ImageIcon,
   Minus,
+  Loader2,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -126,18 +129,46 @@ function FileTreeNode({
               <Folder className="h-3.5 w-3.5 text-[#ffcc00]" />
             )
           ) : (
-            <ImageIcon className="h-3.5 w-3.5 text-[#00ff88]" />
+            <>
+              {node.type === 'file' && 'uploadStatus' in node ? (
+                (() => {
+                  const uploadStatus = (node as any).uploadStatus;
+                  if (uploadStatus === 'uploading') {
+                    return <Loader2 className="h-3.5 w-3.5 text-[#00ccff] animate-spin" />;
+                  } else if (uploadStatus === 'uploaded') {
+                    return <CheckCircle2 className="h-3.5 w-3.5 text-[#00ff88]" />;
+                  } else if (uploadStatus === 'error') {
+                    return <XCircle className="h-3.5 w-3.5 text-[#ff3333]" />;
+                  }
+                  return <ImageIcon className="h-3.5 w-3.5 text-white" />;
+                })()
+              ) : (
+                <ImageIcon className="h-3.5 w-3.5 text-white" />
+              )}
+            </>
           )}
         </span>
 
         {/* Name */}
         <span
-          className="flex-1 truncate text-xs uppercase tracking-wider"
+          className={cn(
+            'flex-1 truncate text-xs uppercase tracking-wider',
+            node.type === 'file' && 'uploadStatus' in node && (node as any).uploadStatus === 'uploading' && 'text-[#00ccff]',
+            node.type === 'file' && 'uploadStatus' in node && (node as any).uploadStatus === 'uploaded' && 'text-[#00ff88]',
+            node.type === 'file' && 'uploadStatus' in node && (node as any).uploadStatus === 'error' && 'text-[#ff3333]'
+          )}
           onClick={handleToggle}
           title={node.name}
         >
           {node.name}
         </span>
+
+        {/* Upload Progress */}
+        {!isDirectory && node.type === 'file' && 'uploadProgress' in node && (node as any).uploadProgress > 0 && (
+          <span className="text-[10px] text-[#00ccff]">
+            {(node as any).uploadProgress}%
+          </span>
+        )}
 
         {/* Count */}
         {isDirectory && fileCount > 0 && (
@@ -145,7 +176,7 @@ function FileTreeNode({
         )}
 
         {/* Size */}
-        {!isDirectory && node.size && (
+        {!isDirectory && node.size && (!('uploadProgress' in node) || (node as any).uploadProgress === 0) && (
           <span className="text-[10px] text-muted-foreground">
             {formatFileSize(node.size)}
           </span>

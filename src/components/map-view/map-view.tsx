@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, memo } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import {
@@ -37,7 +37,7 @@ interface MapViewProps {
   className?: string;
 }
 
-export function MapView({
+function MapViewComponent({
   images,
   onImageSelect,
   selectedImageId,
@@ -211,14 +211,35 @@ export function MapView({
       const el = document.createElement('div');
       el.className = 'map-marker';
       const isSelected = selectedImageId === img.id;
+      const uploadStatus = img.uploadStatus;
+      
+      // Determine marker color based on upload status
+      let bgColor = '#ffffff';
+      let glowColor = 'rgba(255, 255, 255, 0.6)';
+      
+      if (isSelected) {
+        bgColor = '#00ccff';
+        glowColor = 'rgba(0, 204, 255, 0.6)';
+      } else if (uploadStatus === 'uploading') {
+        bgColor = '#00ccff';
+        glowColor = 'rgba(0, 204, 255, 0.8)';
+      } else if (uploadStatus === 'uploaded') {
+        bgColor = '#00ff88';
+        glowColor = 'rgba(0, 255, 136, 0.6)';
+      } else if (uploadStatus === 'error') {
+        bgColor = '#ff3333';
+        glowColor = 'rgba(255, 51, 51, 0.6)';
+      }
+      
       el.style.cssText = `
         width: 12px;
         height: 12px;
-        background: ${isSelected ? '#00ccff' : '#ffffff'};
+        background: ${bgColor};
         border: 2px solid #000;
         cursor: pointer;
-        box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+        box-shadow: 0 0 4px ${glowColor};
         transition: box-shadow 0.15s ease-out;
+        ${uploadStatus === 'uploading' ? 'animation: pulse 1.5s ease-in-out infinite;' : ''}
       `;
 
       el.addEventListener('mouseenter', () => {
@@ -403,3 +424,14 @@ export function MapView({
     </div>
   );
 }
+
+export const MapView = memo(MapViewComponent, (prevProps, nextProps) => {
+  // Return true if props are equal (skip re-render), false if different (re-render)
+  if (prevProps.images.length !== nextProps.images.length) return false;
+  if (prevProps.selectedImageId !== nextProps.selectedImageId) return false;
+  if (prevProps.className !== nextProps.className) return false;
+  // Check if images array contents changed
+  const imagesChanged = prevProps.images.length !== nextProps.images.length ||
+    prevProps.images.some((img, i) => img.id !== nextProps.images[i]?.id);
+  return !imagesChanged; // Return true if images didn't change (skip render)
+});

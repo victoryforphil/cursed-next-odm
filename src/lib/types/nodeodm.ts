@@ -100,10 +100,14 @@ export interface FileNode {
   expanded?: boolean;
 }
 
+export type UploadStatus = 'pending' | 'uploading' | 'uploaded' | 'error';
+
 export interface ImageFile extends FileNode {
   type: 'file';
   thumbnail?: string;
   exif?: ExifData;
+  uploadStatus?: UploadStatus;
+  uploadProgress?: number; // 0-100
 }
 
 export interface ExifData {

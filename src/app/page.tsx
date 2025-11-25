@@ -197,6 +197,7 @@ export default function Home() {
           <NewJobView
             odmOptions={odmOptions}
             isConnected={isConnected}
+            onCreateTask={createTask}
             onTaskCreated={() => {
               setActiveView('job-status');
               refreshTasks();
