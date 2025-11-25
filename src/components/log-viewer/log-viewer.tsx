@@ -106,10 +106,10 @@ export function LogViewer({
     }
   }, [logs, autoScroll]);
 
-  // Take newest logs (last N lines), flex-col-reverse will show them at top
-  const displayLogs = logs.slice(-maxLines);
+  // Reverse logs so newest is first, then take first N lines
+  const displayLogs = [...logs].reverse().slice(0, maxLines);
 
-  // Search functionality - match visual index (newest first due to flex-col-reverse)
+  // Search functionality
   useEffect(() => {
     if (!searchQuery.trim()) {
       setHighlightedLines(new Set());
@@ -118,13 +118,9 @@ export function LogViewer({
     
     const query = searchQuery.toLowerCase();
     const matches = new Set<number>();
-    // displayLogs is [oldest_in_view, ..., newest], flex-col-reverse shows newest first
-    // So visual index 0 = displayLogs[displayLogs.length - 1]
-    displayLogs.forEach((line, displayIndex) => {
+    displayLogs.forEach((line, index) => {
       if (line.toLowerCase().includes(query)) {
-        // Visual index (newest first): displayLogs.length - 1 - displayIndex
-        const visualIndex = displayLogs.length - 1 - displayIndex;
-        matches.add(visualIndex);
+        matches.add(index);
       }
     });
     setHighlightedLines(matches);
@@ -164,9 +160,6 @@ export function LogViewer({
       }
     }
   }, [autoScroll, setAutoScroll]);
-
-  // Take newest logs (last N lines), flex-col-reverse will show them at top
-  const displayLogs = logs.slice(-maxLines);
 
   return (
     <Card className={cn('h-full flex flex-col', className)}>
@@ -264,7 +257,7 @@ export function LogViewer({
           className="h-full"
           onScrollCapture={handleScroll}
         >
-          <div className="p-4 font-mono text-xs leading-relaxed flex flex-col-reverse">
+          <div className="p-4 font-mono text-xs leading-relaxed">
             {displayLogs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <Terminal className="h-12 w-12 mb-4 opacity-50" />
@@ -274,17 +267,16 @@ export function LogViewer({
                 </p>
               </div>
             ) : (
-              displayLogs.map((line, displayIndex) => {
-                // Calculate actual index in logs array (displayLogs is slice(-maxLines))
-                const actualIndex = logs.length - displayLogs.length + displayIndex;
-                const { level, content, timestamp } = parseLogLine(line, actualIndex, logs.length);
-                // With flex-col-reverse, index 0 is visually at top (newest)
-                const visualIndex = displayLogs.length - 1 - displayIndex;
-                const isHighlighted = highlightedLines.has(visualIndex);
+              displayLogs.map((line, index) => {
+                // displayLogs is already reversed (newest first), so index 0 is newest
+                // Calculate original index in logs array for timestamp generation
+                const originalIndex = logs.length - 1 - index;
+                const { level, content, timestamp } = parseLogLine(line, originalIndex, logs.length);
+                const isHighlighted = highlightedLines.has(index);
                 
                 return (
                   <div
-                    key={`log-${actualIndex}`}
+                    key={`log-${originalIndex}`}
                     className={cn(
                       'py-0.5 px-2 -mx-2 rounded flex items-start gap-2',
                       isHighlighted && 'bg-yellow-500/20',
