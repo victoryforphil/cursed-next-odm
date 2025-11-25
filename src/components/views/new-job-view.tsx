@@ -218,36 +218,39 @@ export function NewJobView({ odmOptions, isConnected, onTaskCreated }: NewJobVie
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-4 space-y-6">
-            {/* Task Name */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-wider">Job Name</label>
-              <Input
-                placeholder="Enter job name..."
-                value={taskName}
-                onChange={(e) => setTaskName(e.target.value)}
-                className="h-10 bg-input border-border"
-              />
-            </div>
+            {/* Job Name and Preset - Inline */}
+            <div className="flex items-end gap-4">
+              {/* Job Name */}
+              <div className="flex-1 space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider">Job Name</label>
+                <Input
+                  placeholder="Enter job name..."
+                  value={taskName}
+                  onChange={(e) => setTaskName(e.target.value)}
+                  className="h-10 bg-input border-border"
+                />
+              </div>
 
-            {/* Presets */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-wider">Preset</label>
-              <div className="grid grid-cols-4 gap-2">
-                {presets.map((preset, index) => (
-                  <button
-                    key={preset.name}
-                    onClick={() => handlePresetSelect(index)}
-                    className={cn(
-                      'p-2 border text-center transition-all',
-                      'hover:border-white hover:bg-accent',
-                      selectedPreset === index 
-                        ? 'border-white bg-white text-black' 
-                        : 'border-border bg-transparent'
-                    )}
-                  >
-                    <div className="text-[10px] font-bold uppercase tracking-wider">{preset.name}</div>
-                  </button>
-                ))}
+              {/* Presets */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider">Preset</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {presets.map((preset, index) => (
+                    <button
+                      key={preset.name}
+                      onClick={() => handlePresetSelect(index)}
+                      className={cn(
+                        'p-2 border text-center transition-all',
+                        'hover:border-white hover:bg-accent',
+                        selectedPreset === index 
+                          ? 'border-white bg-white text-black' 
+                          : 'border-border bg-transparent'
+                      )}
+                    >
+                      <div className="text-[10px] font-bold uppercase tracking-wider">{preset.name}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
