@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { PointCloudViewer } from '@/components/pointcloud-viewer';
+import { OrthomosaicViewer } from '@/components/orthomosaic-viewer';
 import { LogViewer } from '@/components/log-viewer';
 import type { TaskInfo, TaskStatusCode } from '@/lib/types/nodeodm';
 
@@ -74,6 +75,7 @@ export function JobStatusView({
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
   const [taskLogs, setTaskLogs] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewType, setViewType] = useState<'pointcloud' | 'orthomosaic'>('pointcloud');
 
   const selectedTask = tasks.find(t => t.uuid === selectedTaskId);
 
@@ -264,24 +266,59 @@ export function JobStatusView({
         />
       </div>
 
-      {/* Right: Point Cloud / Results */}
+      {/* Right: Point Cloud / Orthomosaic / Results */}
       <div className="w-[400px] border-l flex flex-col bg-card">
         <div className="p-4 border-b">
-          <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
-            <Box className="h-4 w-4" />
-            Results
-          </h2>
-          <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">
-            Point cloud preview
-          </p>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
+              <Box className="h-4 w-4" />
+              Results
+            </h2>
+          </div>
+          
+          {/* View type tabs */}
+          <div className="flex gap-1">
+            <button
+              onClick={() => setViewType('pointcloud')}
+              className={cn(
+                'flex-1 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors',
+                'border border-border',
+                viewType === 'pointcloud'
+                  ? 'bg-white text-black border-white'
+                  : 'bg-transparent hover:bg-accent'
+              )}
+            >
+              Point Cloud
+            </button>
+            <button
+              onClick={() => setViewType('orthomosaic')}
+              className={cn(
+                'flex-1 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors',
+                'border border-border',
+                viewType === 'orthomosaic'
+                  ? 'bg-white text-black border-white'
+                  : 'bg-transparent hover:bg-accent'
+              )}
+            >
+              Orthomosaic
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-hidden">
-          <PointCloudViewer
-            taskId={selectedTask?.status.code === 40 ? selectedTaskId : undefined}
-            baseUrl={baseUrl}
-            className="h-full"
-          />
+          {viewType === 'pointcloud' ? (
+            <PointCloudViewer
+              taskId={selectedTask?.status.code === 40 ? selectedTaskId : undefined}
+              baseUrl={baseUrl}
+              className="h-full"
+            />
+          ) : (
+            <OrthomosaicViewer
+              taskId={selectedTask?.status.code === 40 ? selectedTaskId : undefined}
+              baseUrl={baseUrl}
+              className="h-full"
+            />
+          )}
         </div>
 
         {selectedTask?.status.code === 40 && (
