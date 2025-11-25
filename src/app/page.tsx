@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { TaskInfo, TaskStatusCode } from '@/lib/types/nodeodm';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { useNodeODM } from '@/hooks/use-nodeodm';
 import { SettingsDialog } from '@/components/layout';
 import { NewJobView } from '@/components/views/new-job-view';
@@ -146,8 +147,10 @@ export default function Home() {
         }}
       />
 
-      {/* Left Sidebar - Navigation */}
-      <aside className="w-64 border-r bg-sidebar flex flex-col">
+      <ResizablePanelGroup direction="horizontal" className="h-full">
+        {/* Left Sidebar - Navigation */}
+        <ResizablePanel defaultSize={20} minSize={15} maxSize={40}>
+          <aside className="h-full border-r bg-sidebar flex flex-col">
         {/* Logo */}
         <div className="p-4 border-b">
           <div className="flex items-center gap-3">
@@ -232,31 +235,17 @@ export default function Home() {
               )} />
             </button>
 
-            {/* Job List as nested children - Auto-expanded */}
-            {activeView === 'job-status' && (
-              <div className="pl-4 pr-2 pb-2">
-                {/* Refresh button */}
-                <div className="mb-2 flex justify-end">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => refreshTasks()}
-                    disabled={isLoadingTasks}
-                    className="h-6 w-6"
-                  >
-                    <RefreshCw className={cn('h-3 w-3', isLoadingTasks && 'animate-spin')} />
-                  </Button>
+            {/* Job List as nested children - Always expanded */}
+            <div className="pl-4 pr-2 pb-2">
+              {/* Task List */}
+              {sortedTasks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                  <Activity className="h-6 w-6 mb-2 opacity-30" />
+                  <p className="text-[10px] uppercase tracking-wider">No jobs found</p>
                 </div>
-
-                {/* Task List */}
-                {sortedTasks.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
-                    <Activity className="h-6 w-6 mb-2 opacity-30" />
-                    <p className="text-[10px] uppercase tracking-wider">No jobs found</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {sortedTasks.map((task) => {
+              ) : (
+                <div className="space-y-1">
+                  {sortedTasks.map((task) => {
                       const status = statusConfig[task.status.code];
                       const StatusIcon = status.icon;
                       const isRunning = task.status.code === 20;
@@ -344,8 +333,23 @@ export default function Home() {
                     })}
                   </div>
                 )}
+
+                {/* Refresh button at end of list */}
+                {sortedTasks.length > 0 && (
+                  <div className="pt-2 flex justify-center">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => refreshTasks()}
+                      disabled={isLoadingTasks}
+                      className="h-5 w-5"
+                      title="Refresh jobs"
+                    >
+                      <RefreshCw className={cn('h-3 w-3', isLoadingTasks && 'animate-spin')} />
+                    </Button>
+                  </div>
+                )}
               </div>
-            )}
           </div>
         </nav>
 
@@ -359,10 +363,14 @@ export default function Home() {
             Settings
           </button>
         </div>
-      </aside>
+          </aside>
+        </ResizablePanel>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+        <ResizableHandle withHandle />
+
+        {/* Main Content */}
+        <ResizablePanel defaultSize={80} minSize={60}>
+          <main className="h-full flex flex-col overflow-hidden">
         {activeView === 'new-job' && (
           <NewJobView
             odmOptions={odmOptions}
@@ -392,7 +400,9 @@ export default function Home() {
             baseUrl={baseUrl}
           />
         )}
-      </main>
+          </main>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       {/* Settings Dialog */}
       <SettingsDialog
