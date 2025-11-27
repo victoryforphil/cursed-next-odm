@@ -18,6 +18,10 @@ import {
   Minus,
   Plus,
   Grid3X3,
+  Eye,
+  Move3D,
+  Axis3D,
+  Home,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -84,6 +88,7 @@ export function PointCloudViewer({
   const [pointSize, setPointSize] = useState(2);
   const [pointCount, setPointCount] = useState<number>(0);
   const [showGrid, setShowGrid] = useState(true);
+  const [showAxes, setShowAxes] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
   
   // Store original colors and positions for color mode switching
@@ -382,6 +387,16 @@ export function PointCloudViewer({
     }
   }, [showGrid]);
 
+  // Update axes visibility
+  useEffect(() => {
+    if (sceneRef.current) {
+      const axes = sceneRef.current.getObjectByName('axes');
+      if (axes) {
+        axes.visible = showAxes;
+      }
+    }
+  }, [showAxes]);
+
   // Update colors based on color mode
   useEffect(() => {
     if (!pointCloudRef.current || !originalColorsRef.current || !positionsRef.current) return;
@@ -499,6 +514,44 @@ export function PointCloudViewer({
       center.y + distance * 0.7,
       center.z + distance * 0.5
     );
+    controlsRef.current.target.copy(center);
+    controlsRef.current.update();
+  }, []);
+
+  // Camera view presets
+  const setCameraView = useCallback((view: 'top' | 'front' | 'side' | 'iso') => {
+    if (!pointCloudRef.current || !cameraRef.current || !controlsRef.current) return;
+    
+    const geometry = pointCloudRef.current.geometry;
+    geometry.computeBoundingBox();
+    const boundingBox = geometry.boundingBox!;
+    const center = new THREE.Vector3();
+    boundingBox.getCenter(center);
+    const size = new THREE.Vector3();
+    boundingBox.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const distance = maxDim * 1.5;
+    
+    switch (view) {
+      case 'top':
+        cameraRef.current.position.set(center.x, center.y + distance, center.z);
+        break;
+      case 'front':
+        cameraRef.current.position.set(center.x, center.y, center.z + distance);
+        break;
+      case 'side':
+        cameraRef.current.position.set(center.x + distance, center.y, center.z);
+        break;
+      case 'iso':
+      default:
+        cameraRef.current.position.set(
+          center.x + distance * 0.5,
+          center.y + distance * 0.7,
+          center.z + distance * 0.5
+        );
+        break;
+    }
+    
     controlsRef.current.target.copy(center);
     controlsRef.current.update();
   }, []);
@@ -755,6 +808,102 @@ export function PointCloudViewer({
       {/* Viewer */}
       <div ref={containerRef} className="flex-1 relative">
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+        
+        {/* Left sidebar toolbar */}
+        {pointCount > 0 && !isLoading && !error && (
+          <div className="absolute top-4 left-4 flex flex-col gap-1 z-10">
+            <TooltipProvider>
+              {/* Camera presets */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/80 border border-border hover:bg-black"
+                    onClick={() => setCameraView('iso')}
+                  >
+                    <Home className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Isometric view</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/80 border border-border hover:bg-black"
+                    onClick={() => setCameraView('top')}
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Top view</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/80 border border-border hover:bg-black"
+                    onClick={() => setCameraView('front')}
+                  >
+                    <Move3D className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Front view</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/80 border border-border hover:bg-black"
+                    onClick={() => setCameraView('side')}
+                  >
+                    <Axis3D className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Side view</TooltipContent>
+              </Tooltip>
+
+              <div className="h-px bg-border my-1" />
+
+              {/* Toggle axes */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={showAxes ? 'secondary' : 'ghost'}
+                    size="icon"
+                    className="h-8 w-8 bg-black/80 border border-border hover:bg-black"
+                    onClick={() => setShowAxes(!showAxes)}
+                  >
+                    <Box className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Toggle axes</TooltipContent>
+              </Tooltip>
+
+              {/* Fit to view */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/80 border border-border hover:bg-black"
+                    onClick={handleFitToView}
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Fit to view</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        )}
         
         {/* Loading overlay */}
         {isLoading && (

@@ -335,10 +335,22 @@ async function convertToPoints(buffer: Buffer, format: string, maxPoints: number
             positions[i * 3 + 2] = -(y - centerY);
             
             if (hasRGB) {
-              // LAS colors are 16-bit, scale to 8-bit
-              colors[i * 3] = Math.floor(extractor.Red(fullDataView, offset) / 256);
-              colors[i * 3 + 1] = Math.floor(extractor.Green(fullDataView, offset) / 256);
-              colors[i * 3 + 2] = Math.floor(extractor.Blue(fullDataView, offset) / 256);
+              // Get raw RGB values - check if they're 16-bit or 8-bit
+              const r = extractor.Red(fullDataView, offset);
+              const g = extractor.Green(fullDataView, offset);
+              const b = extractor.Blue(fullDataView, offset);
+              
+              // If values are > 255, they're 16-bit and need scaling
+              // Otherwise they're already 8-bit
+              if (r > 255 || g > 255 || b > 255) {
+                colors[i * 3] = Math.floor(r / 256);
+                colors[i * 3 + 1] = Math.floor(g / 256);
+                colors[i * 3 + 2] = Math.floor(b / 256);
+              } else {
+                colors[i * 3] = r;
+                colors[i * 3 + 1] = g;
+                colors[i * 3 + 2] = b;
+              }
             } else {
               // Default color based on normalized height
               const normalizedZ = (z - header.min[2]) / (header.max[2] - header.min[2]);
