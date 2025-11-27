@@ -280,29 +280,33 @@ async function convertToPoints(buffer: Buffer, format: string, maxPoints: number
       } catch (copcError) {
         console.log('[PointCloud API] Not a COPC file, trying as regular LAZ...');
         
-        // Try reading as regular LAS/LAZ using Las module
+        // Try reading as regular LAS/LAZ - first parse header, then decompress
         try {
-          const las = await copc.Las.create(getter);
-          const { header } = las;
+          // Read the file and convert to Uint8Array for copc library
+          const fileBuffer = await fs.readFile(cachedFilePath);
+          const uint8Array = new Uint8Array(fileBuffer);
+          const header = copc.Las.Header.parse(uint8Array);
           
           console.log(`[PointCloud API] LAS/LAZ file: ${header.pointCount} points, format ${header.pointDataRecordFormat}`);
           
+          // Decompress the LAZ file - pass the Uint8Array, not the file path
+          const decompressedBuffer = await copc.Las.PointData.decompressFile(uint8Array);
+          console.log(`[PointCloud API] Decompressed to ${decompressedBuffer.length} bytes`);
+          
           const pointCount = Math.min(header.pointCount, maxPoints);
-          const view = await copc.Las.View.create(getter, las, 0, pointCount);
+          const pointSize = header.pointDataRecordLength;
           
-          const xDim = view.getter('X');
-          const yDim = view.getter('Y');
-          const zDim = view.getter('Z');
-          const redDim = view.getter('Red');
-          const greenDim = view.getter('Green');
-          const blueDim = view.getter('Blue');
+          // Use Extractor directly with empty extraBytes array to avoid the eb.reduce error
+          const extractor = copc.Las.Extractor.create(header, []);
           
-          // Calculate center
+          // First pass: calculate center
           let sumX = 0, sumY = 0, sumZ = 0;
           for (let i = 0; i < pointCount; i++) {
-            sumX += xDim(i);
-            sumY += yDim(i);
-            sumZ += zDim(i);
+            const offset = i * pointSize;
+            const pointView = new DataView(decompressedBuffer.buffer, decompressedBuffer.byteOffset + offset, pointSize);
+            sumX += extractor.X(pointView);
+            sumY += extractor.Y(pointView);
+            sumZ += extractor.Z(pointView);
           }
           const centerX = sumX / pointCount;
           const centerY = sumY / pointCount;
@@ -311,18 +315,30 @@ async function convertToPoints(buffer: Buffer, format: string, maxPoints: number
           const positions = new Float32Array(pointCount * 3);
           const colors = new Uint8Array(pointCount * 3);
           
+          // Check if we have RGB
+          const hasRGB = !!extractor.Red;
+          
+          // Second pass: extract positions and colors
           for (let i = 0; i < pointCount; i++) {
-            positions[i * 3] = xDim(i) - centerX;
-            positions[i * 3 + 1] = zDim(i) - centerZ; // Swap Y and Z
-            positions[i * 3 + 2] = -(yDim(i) - centerY);
+            const offset = i * pointSize;
+            const pointView = new DataView(decompressedBuffer.buffer, decompressedBuffer.byteOffset + offset, pointSize);
             
-            if (redDim && greenDim && blueDim) {
-              colors[i * 3] = Math.floor(redDim(i) / 256);
-              colors[i * 3 + 1] = Math.floor(greenDim(i) / 256);
-              colors[i * 3 + 2] = Math.floor(blueDim(i) / 256);
+            const x = extractor.X(pointView);
+            const y = extractor.Y(pointView);
+            const z = extractor.Z(pointView);
+            
+            positions[i * 3] = x - centerX;
+            positions[i * 3 + 1] = z - centerZ; // Swap Y and Z for Three.js
+            positions[i * 3 + 2] = -(y - centerY);
+            
+            if (hasRGB) {
+              // LAS colors are 16-bit, scale to 8-bit
+              colors[i * 3] = Math.floor(extractor.Red(pointView) / 256);
+              colors[i * 3 + 1] = Math.floor(extractor.Green(pointView) / 256);
+              colors[i * 3 + 2] = Math.floor(extractor.Blue(pointView) / 256);
             } else {
               // Default color based on normalized height
-              const normalizedZ = (zDim(i) - header.min[2]) / (header.max[2] - header.min[2]);
+              const normalizedZ = (z - header.min[2]) / (header.max[2] - header.min[2]);
               colors[i * 3] = Math.floor(normalizedZ * 255);
               colors[i * 3 + 1] = Math.floor((1 - normalizedZ) * 200 + 55);
               colors[i * 3 + 2] = Math.floor((1 - normalizedZ) * 255);
