@@ -15,7 +15,7 @@ interface RouteParams {
 async function ensureCacheDir() {
   try {
     await fs.mkdir(CACHE_DIR, { recursive: true });
-  } catch (error) {
+  } catch {
     // Directory might already exist
   }
 }
@@ -73,11 +73,11 @@ async function extractOrthomosaic(taskId: string): Promise<Buffer> {
     'odm_orthophoto/odm_orthophoto.jpg',
   ];
   
-  let orthophotoEntry: unzipper.File | null = null;
+  let orthophotoEntry: Unzipper.File | null = null;
   let foundPath = '';
   
   for (const orthoPath of orthoPaths) {
-    orthophotoEntry = directory.files.find(f => f.path === orthoPath) || null;
+    orthophotoEntry = directory.files.find((f: Unzipper.File) => f.path === orthoPath) || null;
     if (orthophotoEntry) {
       foundPath = orthoPath;
       break;
@@ -86,7 +86,7 @@ async function extractOrthomosaic(taskId: string): Promise<Buffer> {
   
   if (!orthophotoEntry) {
     // List what files are in the zip for debugging
-    const fileList = directory.files.map(f => f.path).filter(p => p.includes('ortho'));
+    const fileList = directory.files.map((f: Unzipper.File) => f.path).filter((p: string) => p.includes('ortho'));
     console.log(`[Orthomosaic API] Available ortho files: ${fileList.join(', ')}`);
     throw new Error('Orthophoto not found in all.zip');
   }
@@ -114,10 +114,14 @@ async function extractOrthomosaic(taskId: string): Promise<Buffer> {
       // Try using geotiff.js as fallback for GeoTIFF
       console.log(`[Orthomosaic API] Trying geotiff.js fallback...`);
       const GeoTIFF = await import('geotiff');
-      const tiff = await GeoTIFF.fromArrayBuffer(orthophotoBuffer.buffer.slice(
+      // Create a proper ArrayBuffer copy to avoid SharedArrayBuffer issues
+      const arrayBuffer = new ArrayBuffer(orthophotoBuffer.byteLength);
+      new Uint8Array(arrayBuffer).set(new Uint8Array(
+        orthophotoBuffer.buffer,
         orthophotoBuffer.byteOffset,
-        orthophotoBuffer.byteOffset + orthophotoBuffer.byteLength
+        orthophotoBuffer.byteLength
       ));
+      const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
       const image = await tiff.getImage();
       const width = image.getWidth();
       const height = image.getHeight();
