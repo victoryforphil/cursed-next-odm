@@ -202,7 +202,7 @@ async function convertToPoints(buffer: Buffer, format: string, maxPoints: number
         console.log(`[PointCloud API] COPC file: ${header.pointCount} total points`);
         
         // Get all nodes from the hierarchy
-        const nodes = await copc.Copc.loadHierarchyPage(getter, copcData);
+        const nodes = await copcData.hierarchy.loadRecursive(getter);
         const allNodes = Object.values(nodes.nodes);
         
         if (allNodes.length === 0) {
@@ -294,48 +294,51 @@ async function convertToPoints(buffer: Buffer, format: string, maxPoints: number
           console.log(`[PointCloud API] Decompressed to ${decompressedBuffer.length} bytes`);
           
           const pointCount = Math.min(header.pointCount, maxPoints);
-          const pointSize = header.pointDataRecordLength;
+          const recordLength = header.pointDataRecordLength;
           
-          // Use Extractor directly with empty extraBytes array to avoid the eb.reduce error
+          // Use Extractor with a single DataView for all data
+          // The extractor functions take (dataView, byteOffset) as parameters
           const extractor = copc.Las.Extractor.create(header, []);
+          const fullDataView = new DataView(decompressedBuffer.buffer, decompressedBuffer.byteOffset, decompressedBuffer.byteLength);
+          
+          // Check if we have RGB
+          const hasRGB = !!extractor.Red;
           
           // First pass: calculate center
           let sumX = 0, sumY = 0, sumZ = 0;
           for (let i = 0; i < pointCount; i++) {
-            const offset = i * pointSize;
-            const pointView = new DataView(decompressedBuffer.buffer, decompressedBuffer.byteOffset + offset, pointSize);
-            sumX += extractor.X(pointView);
-            sumY += extractor.Y(pointView);
-            sumZ += extractor.Z(pointView);
+            const offset = i * recordLength;
+            sumX += extractor.X(fullDataView, offset);
+            sumY += extractor.Y(fullDataView, offset);
+            sumZ += extractor.Z(fullDataView, offset);
           }
           const centerX = sumX / pointCount;
           const centerY = sumY / pointCount;
           const centerZ = sumZ / pointCount;
           
+          console.log(`[PointCloud API] Center: ${centerX.toFixed(2)}, ${centerY.toFixed(2)}, ${centerZ.toFixed(2)}`);
+          
           const positions = new Float32Array(pointCount * 3);
           const colors = new Uint8Array(pointCount * 3);
           
-          // Check if we have RGB
-          const hasRGB = !!extractor.Red;
-          
           // Second pass: extract positions and colors
           for (let i = 0; i < pointCount; i++) {
-            const offset = i * pointSize;
-            const pointView = new DataView(decompressedBuffer.buffer, decompressedBuffer.byteOffset + offset, pointSize);
+            const offset = i * recordLength;
             
-            const x = extractor.X(pointView);
-            const y = extractor.Y(pointView);
-            const z = extractor.Z(pointView);
+            const x = extractor.X(fullDataView, offset);
+            const y = extractor.Y(fullDataView, offset);
+            const z = extractor.Z(fullDataView, offset);
             
+            // Center and swap Y/Z for Three.js coordinate system
             positions[i * 3] = x - centerX;
-            positions[i * 3 + 1] = z - centerZ; // Swap Y and Z for Three.js
+            positions[i * 3 + 1] = z - centerZ; // Swap Y and Z
             positions[i * 3 + 2] = -(y - centerY);
             
             if (hasRGB) {
               // LAS colors are 16-bit, scale to 8-bit
-              colors[i * 3] = Math.floor(extractor.Red(pointView) / 256);
-              colors[i * 3 + 1] = Math.floor(extractor.Green(pointView) / 256);
-              colors[i * 3 + 2] = Math.floor(extractor.Blue(pointView) / 256);
+              colors[i * 3] = Math.floor(extractor.Red(fullDataView, offset) / 256);
+              colors[i * 3 + 1] = Math.floor(extractor.Green(fullDataView, offset) / 256);
+              colors[i * 3 + 2] = Math.floor(extractor.Blue(fullDataView, offset) / 256);
             } else {
               // Default color based on normalized height
               const normalizedZ = (z - header.min[2]) / (header.max[2] - header.min[2]);
