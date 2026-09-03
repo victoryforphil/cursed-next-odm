@@ -1,13 +1,21 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import {
-  Download,
-  Box,
-  Terminal,
-} from 'lucide-react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { Download, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import {
+  WorkspaceProvider,
+  WorkspaceDock,
+  useWorkspace,
+  buildJobStatusLayout,
+  type DockviewComponents,
+} from '@/components/workspace';
 import { PointCloudViewer } from '@/components/pointcloud-viewer';
 import { OrthomosaicViewer } from '@/components/orthomosaic-viewer';
 import { LogViewer } from '@/components/log-viewer';
@@ -26,6 +34,52 @@ interface JobStatusViewProps {
   baseUrl: string;
 }
 
+// Panel data flows through a view-local context so the dockview component
+// registry stays a stable module-scope reference (no panel remounts).
+type JobPanels = {
+  assetTaskId?: string;
+  baseUrl: string;
+  logs: string[];
+  logTitle: string;
+};
+
+const JobPanelsContext = createContext<JobPanels | null>(null);
+
+function useJobPanels() {
+  const ctx = useContext(JobPanelsContext);
+  if (!ctx) throw new Error('useJobPanels must be used within JobPanelsContext.Provider');
+  return ctx;
+}
+
+function PointCloudPanel() {
+  const { assetTaskId, baseUrl } = useJobPanels();
+  return <PointCloudViewer taskId={assetTaskId} baseUrl={baseUrl} className="h-full" />;
+}
+
+function OrthomosaicPanel() {
+  const { assetTaskId, baseUrl } = useJobPanels();
+  return <OrthomosaicViewer taskId={assetTaskId} baseUrl={baseUrl} className="h-full" />;
+}
+
+function LogsPanel() {
+  const { logs, logTitle } = useJobPanels();
+  return (
+    <div className="h-full bg-black">
+      <LogViewer logs={logs} title={logTitle} className="h-full" />
+    </div>
+  );
+}
+
+function ResetLayoutButton() {
+  const { resetDockLayout } = useWorkspace();
+  return (
+    <Button variant="outline" size="sm" onClick={resetDockLayout} title="Reset dock layout">
+      <RotateCcw className="h-3.5 w-3.5 mr-1" />
+      Reset Layout
+    </Button>
+  );
+}
+
 export function JobStatusView({
   tasks,
   selectedTaskId,
@@ -34,7 +88,6 @@ export function JobStatusView({
   baseUrl,
 }: JobStatusViewProps) {
   const [taskLogs, setTaskLogs] = useState<string[]>([]);
-  const [viewType, setViewType] = useState<'pointcloud' | 'orthomosaic' | 'logs'>('logs');
 
   const selectedTask = tasks.find(t => t.uuid === selectedTaskId);
 
@@ -59,98 +112,57 @@ export function JobStatusView({
     }
   }, [selectedTaskId, tasks, getTaskOutput]);
 
+  const completed = selectedTask?.status.code === 40;
+
+  const panelComponents = useMemo<DockviewComponents>(
+    () => ({
+      pointcloud: PointCloudPanel,
+      orthomosaic: OrthomosaicPanel,
+      logs: LogsPanel,
+    }),
+    [],
+  );
+
+  const panelValue = useMemo<JobPanels>(
+    () => ({
+      assetTaskId: completed ? selectedTaskId : undefined,
+      baseUrl,
+      logs: taskLogs,
+      logTitle: selectedTask?.name || 'Console Output',
+    }),
+    [completed, selectedTaskId, baseUrl, taskLogs, selectedTask],
+  );
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Main Content Area: Tabs for Point Cloud / Orthomosaic / Logs */}
-      <div className="flex-1 flex flex-col bg-card">
-        <div className="p-4 border-b">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
-              {viewType === 'logs' && <Terminal className="h-4 w-4" />}
-              {viewType === 'pointcloud' && <Box className="h-4 w-4" />}
-              {viewType === 'orthomosaic' && <Box className="h-4 w-4" />}
-              {selectedTask?.name || 'Select a job'}
-            </h2>
-          </div>
-          
-          {/* View type tabs */}
-          <div className="flex gap-1">
-            <button
-              onClick={() => setViewType('logs')}
-              className={cn(
-                'flex-1 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors',
-                'border border-border',
-                viewType === 'logs'
-                  ? 'bg-white text-black border-white'
-                  : 'bg-transparent hover:bg-accent'
-              )}
-            >
-              Logs
-            </button>
-            <button
-              onClick={() => setViewType('pointcloud')}
-              className={cn(
-                'flex-1 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors',
-                'border border-border',
-                viewType === 'pointcloud'
-                  ? 'bg-white text-black border-white'
-                  : 'bg-transparent hover:bg-accent'
-              )}
-            >
-              Point Cloud
-            </button>
-            <button
-              onClick={() => setViewType('orthomosaic')}
-              className={cn(
-                'flex-1 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors',
-                'border border-border',
-                viewType === 'orthomosaic'
-                  ? 'bg-white text-black border-white'
-                  : 'bg-transparent hover:bg-accent'
-              )}
-            >
-              Orthomosaic
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-hidden">
-          {viewType === 'logs' ? (
-            <div className="h-full bg-black">
-              <LogViewer
-                logs={taskLogs}
-                title={selectedTask?.name || 'Console Output'}
-                className="h-full"
-              />
+    <WorkspaceProvider storageKey="odm-workspace-layout-v1" defaultLayout={buildJobStatusLayout}>
+      <JobPanelsContext.Provider value={panelValue}>
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col bg-card min-h-0">
+            <div className="p-4 border-b flex items-center justify-between gap-3">
+              <h2 className="text-sm font-bold uppercase tracking-wider truncate">
+                {selectedTask?.name || 'Select a job'}
+              </h2>
+              <ResetLayoutButton />
             </div>
-          ) : viewType === 'pointcloud' ? (
-            <PointCloudViewer
-              taskId={selectedTask?.status.code === 40 ? selectedTaskId : undefined}
-              baseUrl={baseUrl}
-              className="h-full"
-            />
-          ) : (
-            <OrthomosaicViewer
-              taskId={selectedTask?.status.code === 40 ? selectedTaskId : undefined}
-              baseUrl={baseUrl}
-              className="h-full"
-            />
-          )}
-        </div>
 
-        {selectedTask?.status.code === 40 && viewType !== 'logs' && (
-          <div className="p-4 border-t">
-            <Button
-              className="w-full bg-white text-black hover:bg-gray-200 uppercase tracking-wider"
-              onClick={() => onDownloadTask(selectedTask.uuid)}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download All Results
-            </Button>
+            <div className="flex-1 min-h-0">
+              <WorkspaceDock components={panelComponents} />
+            </div>
+
+            {completed && selectedTask && (
+              <div className="p-4 border-t">
+                <Button
+                  className="w-full bg-white text-black hover:bg-gray-200 uppercase tracking-wider"
+                  onClick={() => onDownloadTask(selectedTask.uuid)}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download All Results
+                </Button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      </JobPanelsContext.Provider>
+    </WorkspaceProvider>
   );
 }
-

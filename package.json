@@ -25,7 +25,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "copc": "^0.0.8",
-    "dockview": "^8.2.0",
+    "dockview": "^6.6.1",
     "exif-js": "^2.3.0",
     "geotiff": "^2.1.4-beta.1",
     "laz-perf": "^0.0.7",

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "dockview/dist/styles/dockview.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -244,4 +245,61 @@ button, input, select, textarea {
     opacity: 0.7;
     transform: scale(1.1);
   }
+}
+
+/*
+ * Dockview: extend dockview-theme-dark with the app's neutral black palette.
+ * Matches the pure-black tokens used across the app.
+ */
+.dockview-theme-dark.dockview-theme-odm {
+  --dv-group-view-background-color: #000000;
+  --dv-tabs-and-actions-container-background-color: #0a0a0a;
+  --dv-activegroup-visiblepanel-tab-background-color: #000000;
+  --dv-activegroup-hiddenpanel-tab-background-color: #262626;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #0a0a0a;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #0a0a0a;
+  --dv-tab-divider-color: #262626;
+  --dv-activegroup-visiblepanel-tab-color: #ffffff;
+  --dv-activegroup-hiddenpanel-tab-color: #a3a3a3;
+  --dv-inactivegroup-visiblepanel-tab-color: #a3a3a3;
+  --dv-inactivegroup-hiddenpanel-tab-color: #737373;
+  --dv-separator-border: #262626;
+  --dv-paneview-header-border-color: #262626;
+  --dv-drag-over-background-color: rgba(255, 255, 255, 0.08);
+  --dv-drag-over-border-color: #737373;
+  --dv-icon-hover-background-color: #1f1f1f;
+  --dv-tabs-container-scrollbar-color: #404040;
+  --dv-scrollbar-background-color: rgba(64, 64, 64, 0.55);
+  --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --dv-floating-border: 1px solid #262626;
+  --dv-sash-color: #262626;
+  --dv-active-sash-color: #525252;
+  --dv-paneview-active-outline-color: #737373;
+}
+
+.dockview-theme-dark.dockview-theme-odm .dv-groupview,
+.dockview-theme-dark.dockview-theme-odm .dv-content-container {
+  background-color: #000000;
+  color: #ffffff;
+}
+
+.dockview-theme-dark.dockview-theme-odm .dv-tabs-and-actions-container {
+  background-color: #0a0a0a;
+  border-bottom: 1px solid #262626;
+  height: 28px;
+  min-height: 28px;
+}
+
+.dockview-theme-dark.dockview-theme-odm .dv-tab {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  height: 28px;
+  min-height: 28px;
+}
+
+.dockview-theme-dark.dockview-theme-odm .dv-dockview {
+  background-color: #000000;
 }
