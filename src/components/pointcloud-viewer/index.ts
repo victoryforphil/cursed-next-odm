@@ -1,2 +1,1 @@
-export { PointCloudViewer } from './pointcloud-viewer';
-
+export { PointCloudViewer } from './point-cloud-viewer';

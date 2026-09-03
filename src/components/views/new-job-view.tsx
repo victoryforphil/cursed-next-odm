@@ -41,7 +41,12 @@ import type { ODMOption, TaskOption, ImageFile, UploadStatus } from '@/lib/types
 interface NewJobViewProps {
   odmOptions: ODMOption[];
   isConnected: boolean;
-  onCreateTask: (files: File[], name: string, options: TaskOption[]) => Promise<string | null>;
+  onCreateTask: (
+    files: File[],
+    name: string,
+    options: TaskOption[],
+    onFileProgress?: (fileIndex: number, progress: number) => void
+  ) => Promise<string | null>;
   onTaskCreated: () => void;
 }
 

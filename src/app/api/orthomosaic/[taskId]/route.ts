@@ -43,9 +43,95 @@ async function getCachedFile(taskId: string): Promise<string | null> {
 }
 
 // Download and extract orthomosaic from all.zip
+// Convert a GeoTIFF orthophoto to PNG (sharp first, geotiff.js fallback)
+async function convertTiffToPng(tiffBuffer: Buffer): Promise<Buffer> {
+  console.log(`[Orthomosaic API] Converting TIFF to PNG...`);
+  const sharp = (await import('sharp')).default;
+
+  try {
+    const pngBuffer = await sharp(tiffBuffer)
+      .png({ compressionLevel: 6 })
+      .toBuffer();
+    console.log(`[Orthomosaic API] Converted to PNG: ${pngBuffer.length} bytes`);
+    return pngBuffer;
+  } catch (sharpError) {
+    console.error(`[Orthomosaic API] Sharp conversion failed:`, sharpError);
+  }
+
+  // Fallback: decode with geotiff.js and re-encode via sharp
+  console.log(`[Orthomosaic API] Trying geotiff.js fallback...`);
+  const GeoTIFF = await import('geotiff');
+  // Create a proper ArrayBuffer copy to avoid SharedArrayBuffer issues
+  const arrayBuffer = new ArrayBuffer(tiffBuffer.byteLength);
+  new Uint8Array(arrayBuffer).set(new Uint8Array(
+    tiffBuffer.buffer,
+    tiffBuffer.byteOffset,
+    tiffBuffer.byteLength
+  ));
+  const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
+  const image = await tiff.getImage();
+  const width = image.getWidth();
+  const height = image.getHeight();
+  const rasters = await image.readRasters();
+
+  // Convert to RGBA
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  const samplesPerPixel = rasters.length;
+
+  for (let i = 0; i < width * height; i++) {
+    if (samplesPerPixel >= 3) {
+      rgba[i * 4] = (rasters[0] as Uint8Array)[i];     // R
+      rgba[i * 4 + 1] = (rasters[1] as Uint8Array)[i]; // G
+      rgba[i * 4 + 2] = (rasters[2] as Uint8Array)[i]; // B
+      rgba[i * 4 + 3] = samplesPerPixel >= 4 ? (rasters[3] as Uint8Array)[i] : 255; // A
+    } else {
+      // Grayscale
+      const val = (rasters[0] as Uint8Array)[i];
+      rgba[i * 4] = val;
+      rgba[i * 4 + 1] = val;
+      rgba[i * 4 + 2] = val;
+      rgba[i * 4 + 3] = 255;
+    }
+  }
+
+  // Use sharp to encode as PNG
+  const pngBuffer = await sharp(Buffer.from(rgba.buffer), {
+    raw: { width, height, channels: 4 }
+  })
+    .png({ compressionLevel: 6 })
+    .toBuffer();
+
+  console.log(`[Orthomosaic API] GeoTIFF converted to PNG: ${pngBuffer.length} bytes`);
+  return pngBuffer;
+}
+
 async function extractOrthomosaic(taskId: string): Promise<Buffer> {
   const nodeODMUrl = getNodeODMUrl();
+
+  // Try fetching the orthophoto directly from the task output first —
+  // this avoids downloading the entire all.zip
+  const directAssets = [
+    'odm_orthophoto/odm_orthophoto.png',
+    'odm_orthophoto/odm_orthophoto.tif',
+  ];
+  for (const asset of directAssets) {
+    try {
+      const response = await fetch(`${nodeODMUrl}/task/${taskId}/download/${asset}`);
+      if (response.ok) {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        console.log(`[Orthomosaic API] Fetched ${asset} directly (${buffer.length} bytes)`);
+        if (asset.endsWith('.tif')) {
+          return await convertTiffToPng(buffer);
+        }
+        return buffer;
+      }
+    } catch {
+      // NodeODM unreachable or asset not served directly — fall through to all.zip
+    }
+  }
+
   const zipUrl = `${nodeODMUrl}/task/${taskId}/download/all.zip`;
+  console.log(`[Orthomosaic API] Falling back to ${zipUrl}`);
   
   console.log(`[Orthomosaic API] Downloading all.zip from ${zipUrl}`);
   
@@ -97,66 +183,8 @@ async function extractOrthomosaic(taskId: string): Promise<Buffer> {
   const orthophotoBuffer = await orthophotoEntry.buffer();
   console.log(`[Orthomosaic API] Extracted ${orthophotoBuffer.length} bytes`);
   
-  // If it's a TIFF, convert to PNG using sharp
   if (foundPath.endsWith('.tif') || foundPath.endsWith('.tiff')) {
-    console.log(`[Orthomosaic API] Converting TIFF to PNG...`);
-    const sharp = (await import('sharp')).default;
-    
-    try {
-      const pngBuffer = await sharp(orthophotoBuffer)
-        .png({ quality: 90, compressionLevel: 6 })
-        .toBuffer();
-      console.log(`[Orthomosaic API] Converted to PNG: ${pngBuffer.length} bytes`);
-      return pngBuffer;
-    } catch (sharpError) {
-      console.error(`[Orthomosaic API] Sharp conversion failed:`, sharpError);
-      
-      // Try using geotiff.js as fallback for GeoTIFF
-      console.log(`[Orthomosaic API] Trying geotiff.js fallback...`);
-      const GeoTIFF = await import('geotiff');
-      // Create a proper ArrayBuffer copy to avoid SharedArrayBuffer issues
-      const arrayBuffer = new ArrayBuffer(orthophotoBuffer.byteLength);
-      new Uint8Array(arrayBuffer).set(new Uint8Array(
-        orthophotoBuffer.buffer,
-        orthophotoBuffer.byteOffset,
-        orthophotoBuffer.byteLength
-      ));
-      const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
-      const image = await tiff.getImage();
-      const width = image.getWidth();
-      const height = image.getHeight();
-      const rasters = await image.readRasters();
-      
-      // Convert to RGBA
-      const rgba = new Uint8ClampedArray(width * height * 4);
-      const samplesPerPixel = rasters.length;
-      
-      for (let i = 0; i < width * height; i++) {
-        if (samplesPerPixel >= 3) {
-          rgba[i * 4] = (rasters[0] as Uint8Array)[i];     // R
-          rgba[i * 4 + 1] = (rasters[1] as Uint8Array)[i]; // G
-          rgba[i * 4 + 2] = (rasters[2] as Uint8Array)[i]; // B
-          rgba[i * 4 + 3] = samplesPerPixel >= 4 ? (rasters[3] as Uint8Array)[i] : 255; // A
-        } else {
-          // Grayscale
-          const val = (rasters[0] as Uint8Array)[i];
-          rgba[i * 4] = val;
-          rgba[i * 4 + 1] = val;
-          rgba[i * 4 + 2] = val;
-          rgba[i * 4 + 3] = 255;
-        }
-      }
-      
-      // Use sharp to encode as PNG
-      const pngBuffer = await sharp(Buffer.from(rgba.buffer), {
-        raw: { width, height, channels: 4 }
-      })
-        .png({ quality: 90, compressionLevel: 6 })
-        .toBuffer();
-      
-      console.log(`[Orthomosaic API] GeoTIFF converted to PNG: ${pngBuffer.length} bytes`);
-      return pngBuffer;
-    }
+    return await convertTiffToPng(orthophotoBuffer);
   }
   
   // If it's already PNG or JPG, return as-is or convert to PNG

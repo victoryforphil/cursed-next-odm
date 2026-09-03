@@ -42,19 +42,19 @@ async function getCachedFile(taskId: string, ext: string): Promise<string | null
   return null;
 }
 
-// Point cloud file paths to search for in order of preference
-const POINTCLOUD_PATHS = [
-  // Georeferenced LAZ (compressed, smaller)
+// Point cloud files to search for in all.zip, in order of preference
+const POINTCLOUD_ZIP_PATHS = [
   'odm_georeferencing/odm_georeferenced_model.laz',
-  // Georeferenced LAS (uncompressed)
   'odm_georeferencing/odm_georeferenced_model.las',
-  // Coarse point cloud
-  'odm_georeferencing/odm_georeferenced_model.copc.laz',
-  // Alternative locations
   'georeferenced_model.laz',
   'georeferenced_model.las',
 ];
 
+// Assets NodeODM can serve directly without downloading the whole all.zip
+const POINTCLOUD_DIRECT_ASSETS = [
+  'odm_georeferencing/odm_georeferenced_model.laz',
+  'odm_georeferencing/odm_georeferenced_model.las',
+];
 interface PointCloudResult {
   buffer: Buffer;
   filename: string;
@@ -62,41 +62,70 @@ interface PointCloudResult {
   format: string;
 }
 
+function describePointCloud(filename: string): { contentType: string; format: string } {
+  const ext = path.extname(filename).toLowerCase();
+  const contentType =
+    ext === '.laz' ? 'application/vnd.laszip' :
+    ext === '.las' ? 'application/vnd.las' :
+    ext === '.ply' ? 'application/ply' :
+    'application/octet-stream';
+  return { contentType, format: ext.replace('.', '') };
+}
+
 // Download and extract point cloud from all.zip
 async function extractPointCloud(taskId: string): Promise<PointCloudResult> {
   const nodeODMUrl = getNodeODMUrl();
+
+  // Try fetching the point cloud directly from the task output first —
+  // this avoids downloading the entire all.zip
+  for (const asset of POINTCLOUD_DIRECT_ASSETS) {
+    try {
+      const response = await fetch(`${nodeODMUrl}/task/${taskId}/download/${asset}`);
+      if (response.ok) {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        console.log(`[PointCloud API] Fetched ${asset} directly (${buffer.length} bytes)`);
+        return {
+          buffer,
+          filename: `pointcloud_${taskId}${path.extname(asset)}`,
+          ...describePointCloud(asset),
+        };
+      }
+    } catch {
+      // NodeODM unreachable or asset not served directly — fall through to all.zip
+    }
+  }
+
   const zipUrl = `${nodeODMUrl}/task/${taskId}/download/all.zip`;
-  
-  console.log(`[PointCloud API] Downloading all.zip from ${zipUrl}`);
-  
+  console.log(`[PointCloud API] Falling back to ${zipUrl}`);
+
   // Dynamically import unzipper
   const unzipper = await import('unzipper');
-  
+
   // Download the zip file
   const response = await fetch(zipUrl);
   if (!response.ok) {
     throw new Error(`Failed to download all.zip: ${response.status} ${response.statusText}`);
   }
-  
+
   const arrayBuffer = await response.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  
+
   console.log(`[PointCloud API] Downloaded ${buffer.length} bytes, extracting...`);
-  
+
   // Parse the zip and find the point cloud
   const directory = await unzipper.Open.buffer(buffer);
-  
+
   let pointcloudEntry: Unzipper.File | null = null;
   let foundPath = '';
-  
-  for (const pcPath of POINTCLOUD_PATHS) {
+
+  for (const pcPath of POINTCLOUD_ZIP_PATHS) {
     pointcloudEntry = directory.files.find((f: Unzipper.File) => f.path === pcPath) || null;
     if (pointcloudEntry) {
       foundPath = pcPath;
       break;
     }
   }
-  
+
   if (!pointcloudEntry) {
     // List what files are in the zip for debugging
     const fileList = directory.files
@@ -105,326 +134,203 @@ async function extractPointCloud(taskId: string): Promise<PointCloudResult> {
     console.log(`[PointCloud API] Available point cloud files: ${fileList.join(', ')}`);
     throw new Error('Georeferenced point cloud not found in all.zip');
   }
-  
+
   console.log(`[PointCloud API] Found point cloud: ${foundPath}`);
-  
+
   // Extract the file
   const pointcloudBuffer = await pointcloudEntry.buffer();
   console.log(`[PointCloud API] Extracted ${pointcloudBuffer.length} bytes`);
-  
-  // Determine content type and filename
-  const ext = path.extname(foundPath).toLowerCase();
-  let contentType = 'application/octet-stream';
-  const filename = `pointcloud_${taskId}${ext}`;
-  let format = ext.replace('.', '');
-  
-  if (ext === '.laz') {
-    contentType = 'application/vnd.laszip';
-  } else if (ext === '.las') {
-    contentType = 'application/vnd.las';
-  } else if (ext === '.ply') {
-    contentType = 'application/ply';
-  }
-  
+
   return {
     buffer: pointcloudBuffer,
-    filename,
-    contentType,
-    format,
+    filename: `pointcloud_${taskId}${path.extname(foundPath)}`,
+    ...describePointCloud(foundPath),
   };
 }
 
-// Parse LAS/LAZ header to get point count and format info
-interface LASHeader {
+
+// A view over decoded points: index-based dimension getters with scale/offset applied
+type PointView = {
   pointCount: number;
-  pointDataFormat: number;
-  pointDataRecordLength: number;
-  offsetToPointData: number;
-  scaleX: number;
-  scaleY: number;
-  scaleZ: number;
-  offsetX: number;
-  offsetY: number;
-  offsetZ: number;
-  minX: number;
-  minY: number;
-  minZ: number;
-  maxX: number;
-  maxY: number;
-  maxZ: number;
-}
+  dimensions: { [name: string]: unknown };
+  getter: (name: string) => (index: number) => number;
+};
 
-function parseLASHeader(buffer: Buffer): LASHeader {
-  // LAS file format header
-  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  
-  return {
-    pointDataFormat: view.getUint8(104),
-    pointDataRecordLength: view.getUint16(105, true),
-    pointCount: view.getUint32(107, true), // Legacy point count
-    offsetToPointData: view.getUint32(96, true),
-    scaleX: view.getFloat64(131, true),
-    scaleY: view.getFloat64(139, true),
-    scaleZ: view.getFloat64(147, true),
-    offsetX: view.getFloat64(155, true),
-    offsetY: view.getFloat64(163, true),
-    offsetZ: view.getFloat64(171, true),
-    minX: view.getFloat64(187, true),
-    minY: view.getFloat64(203, true),
-    minZ: view.getFloat64(219, true),
-    maxX: view.getFloat64(179, true),
-    maxY: view.getFloat64(195, true),
-    maxZ: view.getFloat64(211, true),
-  };
+type PointPart = {
+  view: PointView;
+  limit: number;
+  zMin: number;
+  zMax: number;
+};
+
+// Copy up to `limit` points from a view into the output arrays (already centered/axis-swapped space).
+// Returns the updated number of written points.
+function extractPoints(
+  view: PointView,
+  limit: number,
+  zMin: number,
+  zMax: number,
+  center: [number, number, number],
+  positions: Float32Array,
+  colors: Uint8Array,
+  written: number,
+): number {
+  const getX = view.getter('X');
+  const getY = view.getter('Y');
+  const getZ = view.getter('Z');
+  const getRed = view.dimensions.Red !== undefined ? view.getter('Red') : null;
+  const getGreen = view.dimensions.Green !== undefined ? view.getter('Green') : null;
+  const getBlue = view.dimensions.Blue !== undefined ? view.getter('Blue') : null;
+
+  const zRange = Math.max(zMax - zMin, 1e-6);
+  const count = Math.min(view.pointCount, limit);
+
+  for (let i = 0; i < count; i++) {
+    const x = getX(i);
+    const y = getY(i);
+    const z = getZ(i);
+
+    // Center on the cloud and swap Y/Z for the Three.js (Y-up) coordinate system
+    positions[written * 3] = x - center[0];
+    positions[written * 3 + 1] = z - center[2];
+    positions[written * 3 + 2] = -(y - center[1]);
+
+    if (getRed && getGreen && getBlue) {
+      const r = getRed(i);
+      const g = getGreen(i);
+      const b = getBlue(i);
+      // LAS stores 16-bit RGB; some writers store 8-bit values — scale by magnitude
+      if (r > 255 || g > 255 || b > 255) {
+        colors[written * 3] = Math.floor(r / 256);
+        colors[written * 3 + 1] = Math.floor(g / 256);
+        colors[written * 3 + 2] = Math.floor(b / 256);
+      } else {
+        colors[written * 3] = r;
+        colors[written * 3 + 1] = g;
+        colors[written * 3 + 2] = b;
+      }
+    } else {
+      // Height-based fallback color (blue low, red high)
+      const t = (z - zMin) / zRange;
+      colors[written * 3] = Math.floor(t * 255);
+      colors[written * 3 + 1] = Math.floor((1 - t) * 200 + 55);
+      colors[written * 3 + 2] = Math.floor((1 - t) * 255);
+    }
+    written++;
+  }
+
+  return written;
 }
 
 // Convert LAS/LAZ points to a binary format for Three.js (positions + colors)
 // For LAZ files, we need to pass the cached file path so copc can read it
-async function convertToPoints(buffer: Buffer, format: string, maxPoints: number = 500000, cachedFilePath?: string): Promise<{ positions: Float32Array; colors: Uint8Array; pointCount: number }> {
-  // If LAZ, decompress using copc library (requires file path)
+async function convertToPoints(
+  buffer: Buffer,
+  format: string,
+  maxPoints: number = 500000,
+  cachedFilePath?: string,
+): Promise<{ positions: Float32Array; colors: Uint8Array; pointCount: number }> {
+  const copc = await import('copc');
+  const include = ['X', 'Y', 'Z', 'Red', 'Green', 'Blue'];
+  const parts: PointPart[] = [];
+  let center: [number, number, number] = [0, 0, 0];
+
   if (format === 'laz') {
     if (!cachedFilePath) {
       throw new Error('LAZ decompression requires a cached file path');
     }
-    
-    console.log('[PointCloud API] Decompressing LAZ from:', cachedFilePath);
+
+    console.log('[PointCloud API] Reading LAZ from:', cachedFilePath);
+    const getter = copc.Getter.create(cachedFilePath);
+
+    // Try COPC first (sparse octree hierarchy, one node view per level)
+    let copcData: Awaited<ReturnType<typeof copc.Copc.create>> | null = null;
     try {
-      const copc = await import('copc');
-      
-      // Create a file getter using the cached path
-      const getter = copc.Getter.create(cachedFilePath);
-      
-      // Try to read as COPC first
-      try {
-        const copcData = await copc.Copc.create(getter);
-        const { header, info } = copcData;
-        
-        console.log(`[PointCloud API] COPC file: ${header.pointCount} total points`);
-        
-        // Get all nodes from the hierarchy
-        const nodes = await copcData.hierarchy.loadRecursive(getter);
-        const allNodes = Object.values(nodes.nodes);
-        
-        if (allNodes.length === 0) {
-          throw new Error('No nodes found in COPC hierarchy');
-        }
-        
-        // Sort nodes by depth (root first) and collect points up to maxPoints
-        allNodes.sort((a, b) => {
-          const depthA = a.key?.split('-')[0] || '0';
-          const depthB = b.key?.split('-')[0] || '0';
-          return parseInt(depthA) - parseInt(depthB);
-        });
-        
-        let totalPoints = 0;
-        const allPositions: number[] = [];
-        const allColors: number[] = [];
-        
-        for (const node of allNodes) {
-          if (totalPoints >= maxPoints) break;
-          if (!node.pointCount) continue;
-          
-          const view = await copc.Copc.loadPointDataView(getter, copcData, node);
-          const pointsToRead = Math.min(view.pointCount, maxPoints - totalPoints);
-          
-          const xDim = view.getter('X');
-          const yDim = view.getter('Y');
-          const zDim = view.getter('Z');
-          const redDim = view.getter('Red');
-          const greenDim = view.getter('Green');
-          const blueDim = view.getter('Blue');
-          
-          for (let i = 0; i < pointsToRead; i++) {
-            allPositions.push(xDim(i), yDim(i), zDim(i));
-            if (redDim && greenDim && blueDim) {
-              allColors.push(
-                Math.floor(redDim(i) / 256),
-                Math.floor(greenDim(i) / 256),
-                Math.floor(blueDim(i) / 256)
-              );
-            } else {
-              allColors.push(128, 128, 128);
-            }
-          }
-          totalPoints += pointsToRead;
-        }
-        
-        // Calculate center for centering
-        let sumX = 0, sumY = 0, sumZ = 0;
-        for (let i = 0; i < totalPoints; i++) {
-          sumX += allPositions[i * 3];
-          sumY += allPositions[i * 3 + 1];
-          sumZ += allPositions[i * 3 + 2];
-        }
-        const centerX = sumX / totalPoints;
-        const centerY = sumY / totalPoints;
-        const centerZ = sumZ / totalPoints;
-        
-        // Create output arrays with centered coordinates and Y/Z swap
-        const positions = new Float32Array(totalPoints * 3);
-        const colors = new Uint8Array(totalPoints * 3);
-        
-        for (let i = 0; i < totalPoints; i++) {
-          positions[i * 3] = allPositions[i * 3] - centerX;
-          positions[i * 3 + 1] = allPositions[i * 3 + 2] - centerZ; // Swap Y and Z
-          positions[i * 3 + 2] = -(allPositions[i * 3 + 1] - centerY);
-          
-          colors[i * 3] = allColors[i * 3];
-          colors[i * 3 + 1] = allColors[i * 3 + 1];
-          colors[i * 3 + 2] = allColors[i * 3 + 2];
-        }
-        
-        console.log(`[PointCloud API] Extracted ${totalPoints} points from COPC`);
-        return { positions, colors, pointCount: totalPoints };
-        
-      } catch (copcError) {
-        console.log('[PointCloud API] Not a COPC file, trying as regular LAZ...');
-        
-        // Try reading as regular LAS/LAZ - first parse header, then decompress
-        try {
-          // Read the file and convert to Uint8Array for copc library
-          const fileBuffer = await fs.readFile(cachedFilePath);
-          const uint8Array = new Uint8Array(fileBuffer);
-          const header = copc.Las.Header.parse(uint8Array);
-          
-          console.log(`[PointCloud API] LAS/LAZ file: ${header.pointCount} points, format ${header.pointDataRecordFormat}`);
-          
-          // Decompress the LAZ file - pass the Uint8Array, not the file path
-          const decompressedBuffer = await copc.Las.PointData.decompressFile(uint8Array);
-          console.log(`[PointCloud API] Decompressed to ${decompressedBuffer.length} bytes`);
-          
-          const pointCount = Math.min(header.pointCount, maxPoints);
-          const recordLength = header.pointDataRecordLength;
-          
-          // Use Extractor with a single DataView for all data
-          // The extractor functions take (dataView, byteOffset) as parameters
-          const extractor = copc.Las.Extractor.create(header, []);
-          const fullDataView = new DataView(decompressedBuffer.buffer, decompressedBuffer.byteOffset, decompressedBuffer.byteLength);
-          
-          // Check if we have RGB
-          const hasRGB = !!extractor.Red;
-          
-          // First pass: calculate center
-          let sumX = 0, sumY = 0, sumZ = 0;
-          for (let i = 0; i < pointCount; i++) {
-            const offset = i * recordLength;
-            sumX += extractor.X(fullDataView, offset);
-            sumY += extractor.Y(fullDataView, offset);
-            sumZ += extractor.Z(fullDataView, offset);
-          }
-          const centerX = sumX / pointCount;
-          const centerY = sumY / pointCount;
-          const centerZ = sumZ / pointCount;
-          
-          console.log(`[PointCloud API] Center: ${centerX.toFixed(2)}, ${centerY.toFixed(2)}, ${centerZ.toFixed(2)}`);
-          
-          const positions = new Float32Array(pointCount * 3);
-          const colors = new Uint8Array(pointCount * 3);
-          
-          // Second pass: extract positions and colors
-          for (let i = 0; i < pointCount; i++) {
-            const offset = i * recordLength;
-            
-            const x = extractor.X(fullDataView, offset);
-            const y = extractor.Y(fullDataView, offset);
-            const z = extractor.Z(fullDataView, offset);
-            
-            // Center and swap Y/Z for Three.js coordinate system
-            positions[i * 3] = x - centerX;
-            positions[i * 3 + 1] = z - centerZ; // Swap Y and Z
-            positions[i * 3 + 2] = -(y - centerY);
-            
-            if (hasRGB) {
-              // Get raw RGB values - check if they're 16-bit or 8-bit
-              const r = extractor.Red(fullDataView, offset);
-              const g = extractor.Green(fullDataView, offset);
-              const b = extractor.Blue(fullDataView, offset);
-              
-              // If values are > 255, they're 16-bit and need scaling
-              // Otherwise they're already 8-bit
-              if (r > 255 || g > 255 || b > 255) {
-                colors[i * 3] = Math.floor(r / 256);
-                colors[i * 3 + 1] = Math.floor(g / 256);
-                colors[i * 3 + 2] = Math.floor(b / 256);
-              } else {
-                colors[i * 3] = r;
-                colors[i * 3 + 1] = g;
-                colors[i * 3 + 2] = b;
-              }
-            } else {
-              // Default color based on normalized height
-              const normalizedZ = (z - header.min[2]) / (header.max[2] - header.min[2]);
-              colors[i * 3] = Math.floor(normalizedZ * 255);
-              colors[i * 3 + 1] = Math.floor((1 - normalizedZ) * 200 + 55);
-              colors[i * 3 + 2] = Math.floor((1 - normalizedZ) * 255);
-            }
-          }
-          
-          console.log(`[PointCloud API] Extracted ${pointCount} points from LAZ`);
-          return { positions, colors, pointCount };
-          
-        } catch (lasError) {
-          throw new Error(`Failed to read LAZ: ${lasError instanceof Error ? lasError.message : 'Unknown error'}`);
-        }
-      }
-    } catch (e) {
-      console.error('[PointCloud API] LAZ decompression error:', e);
-      throw new Error(`LAZ decompression failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      copcData = await copc.Copc.create(getter);
+    } catch {
+      copcData = null;
     }
+
+    if (copcData) {
+      const header = copcData.header;
+      console.log(`[PointCloud API] COPC file: ${header.pointCount} total points`);
+      const subtree = await copc.Copc.loadHierarchyPage(getter, copcData.info.rootHierarchyPage);
+      // Coarse levels first ("depth-x-y-z" keys) so the overall shape appears early
+      const nodes = Object.entries(subtree.nodes)
+        .filter(([, node]) => node && node.pointCount > 0)
+        .sort((a, b) => parseInt(a[0].split('-')[0], 10) - parseInt(b[0].split('-')[0], 10));
+
+      if (nodes.length === 0) {
+        throw new Error('No nodes found in COPC hierarchy');
+      }
+
+      center = [
+        (header.min[0] + header.max[0]) / 2,
+        (header.min[1] + header.max[1]) / 2,
+        (header.min[2] + header.max[2]) / 2,
+      ];
+
+      let remaining = maxPoints;
+      for (const [, node] of nodes) {
+        if (remaining <= 0) break;
+        const view = await copc.Copc.loadPointDataView(getter, copcData, node, { include });
+        const limit = Math.min(view.pointCount, remaining);
+        parts.push({ view, limit, zMin: header.min[2], zMax: header.max[2] });
+        remaining -= limit;
+      }
+    } else {
+      // Plain LAZ: decompress the whole file, then build a single view
+      const file = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      const header = copc.Las.Header.parse(file);
+      console.log(`[PointCloud API] LAS/LAZ file: ${header.pointCount} points, format ${header.pointDataRecordFormat}`);
+
+      const decompressed = await copc.Las.PointData.decompressFile(file);
+      console.log(`[PointCloud API] Decompressed to ${decompressed.length} bytes`);
+
+      const view = copc.Las.View.create(decompressed, header);
+      parts.push({
+        view,
+        limit: Math.min(view.pointCount, maxPoints),
+        zMin: header.min[2],
+        zMax: header.max[2],
+      });
+      center = [
+        (header.min[0] + header.max[0]) / 2,
+        (header.min[1] + header.max[1]) / 2,
+        (header.min[2] + header.max[2]) / 2,
+      ];
+    }
+  } else {
+    // Uncompressed LAS: point records start at pointDataOffset
+    const file = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const header = copc.Las.Header.parse(file);
+    console.log(`[PointCloud API] LAS file: ${header.pointCount} points, format ${header.pointDataRecordFormat}`);
+
+    const view = copc.Las.View.create(file.subarray(header.pointDataOffset), header);
+    parts.push({
+      view,
+      limit: Math.min(view.pointCount, maxPoints),
+      zMin: header.min[2],
+      zMax: header.max[2],
+    });
+    center = [
+      (header.min[0] + header.max[0]) / 2,
+      (header.min[1] + header.max[1]) / 2,
+      (header.min[2] + header.max[2]) / 2,
+    ];
   }
-  
-  // Parse LAS file
-  const header = parseLASHeader(lasBuffer);
-  console.log(`[PointCloud API] LAS header: ${header.pointCount} points, format ${header.pointDataFormat}`);
-  
-  const pointCount = Math.min(header.pointCount, maxPoints);
+
+  const pointCount = parts.reduce((sum, part) => sum + part.limit, 0);
   const positions = new Float32Array(pointCount * 3);
   const colors = new Uint8Array(pointCount * 3);
-  
-  const view = new DataView(lasBuffer.buffer, lasBuffer.byteOffset, lasBuffer.byteLength);
-  const recordLength = header.pointDataRecordLength;
-  
-  // Calculate center for centering the point cloud
-  const centerX = (header.minX + header.maxX) / 2;
-  const centerY = (header.minY + header.maxY) / 2;
-  const centerZ = (header.minZ + header.maxZ) / 2;
-  
-  // Determine if format has RGB (formats 2, 3, 5, 7, 8, 10)
-  const hasRGB = [2, 3, 5, 7, 8, 10].includes(header.pointDataFormat);
-  const rgbOffset = header.pointDataFormat <= 5 ? 20 : 28; // Approximate offset
-  
-  for (let i = 0; i < pointCount; i++) {
-    const offset = header.offsetToPointData + i * recordLength;
-    
-    // Read X, Y, Z as 32-bit integers and apply scale/offset
-    const x = view.getInt32(offset, true) * header.scaleX + header.offsetX;
-    const y = view.getInt32(offset + 4, true) * header.scaleY + header.offsetY;
-    const z = view.getInt32(offset + 8, true) * header.scaleZ + header.offsetZ;
-    
-    // Center and swap Y/Z for Three.js coordinate system
-    positions[i * 3] = x - centerX;
-    positions[i * 3 + 1] = z - centerZ;
-    positions[i * 3 + 2] = -(y - centerY);
-    
-    if (hasRGB && offset + rgbOffset + 6 <= lasBuffer.length) {
-      // Read RGB as 16-bit values, scale to 8-bit
-      const r = view.getUint16(offset + rgbOffset, true);
-      const g = view.getUint16(offset + rgbOffset + 2, true);
-      const b = view.getUint16(offset + rgbOffset + 4, true);
-      colors[i * 3] = Math.floor(r / 256);
-      colors[i * 3 + 1] = Math.floor(g / 256);
-      colors[i * 3 + 2] = Math.floor(b / 256);
-    } else {
-      // Default color based on height
-      const normalizedZ = (z - header.minZ) / (header.maxZ - header.minZ);
-      colors[i * 3] = Math.floor(normalizedZ * 255);
-      colors[i * 3 + 1] = Math.floor((1 - normalizedZ) * 200 + 55);
-      colors[i * 3 + 2] = Math.floor((1 - normalizedZ) * 255);
-    }
+
+  let written = 0;
+  for (const part of parts) {
+    written = extractPoints(part.view, part.limit, part.zMin, part.zMax, center, positions, colors, written);
   }
-  
-  console.log(`[PointCloud API] Extracted ${pointCount} points`);
-  return { positions, colors, pointCount };
+
+  console.log(`[PointCloud API] Extracted ${written} points`);
+  return { positions, colors, pointCount: written };
 }
 
 // GET handler - returns the point cloud file
@@ -439,7 +345,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const searchParams = request.nextUrl.searchParams;
   const infoOnly = searchParams.get('info') === 'true';
   const outputFormat = searchParams.get('format'); // 'points' for Three.js binary format
-  const maxPoints = parseInt(searchParams.get('maxPoints') || '500000', 10);
+  const parsedMaxPoints = parseInt(searchParams.get('maxPoints') || '500000', 10);
+  const maxPoints = Number.isFinite(parsedMaxPoints) && parsedMaxPoints > 0
+    ? Math.min(parsedMaxPoints, 10_000_000)
+    : 500000;
   
   try {
     await ensureCacheDir();
@@ -457,7 +366,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     
     // For points format, check if we have cached binary points
     if (outputFormat === 'points') {
-      const pointsCachePath = await getCachedFile(taskId, 'points.bin');
+      const pointsCachePath = await getCachedFile(taskId, `${maxPoints}.points.bin`);
       if (pointsCachePath) {
         console.log(`[PointCloud API] Serving cached points for ${taskId}`);
         const data = await fs.readFile(pointsCachePath);
@@ -543,7 +452,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       new Uint8Array(outputBuffer, headerSize + positionsSize, colorsSize).set(colors);
       
       // Cache the points
-      const pointsCachePath = path.join(CACHE_DIR, `${taskId}.points.bin`);
+      const pointsCachePath = path.join(CACHE_DIR, `${taskId}.${maxPoints}.points.bin`);
       await fs.writeFile(pointsCachePath, Buffer.from(outputBuffer));
       console.log(`[PointCloud API] Cached points to ${pointsCachePath}`);
       

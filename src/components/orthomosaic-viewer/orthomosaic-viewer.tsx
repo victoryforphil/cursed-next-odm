@@ -102,21 +102,24 @@ export function OrthomosaicViewer({
               imageRef.current.src = imageUrl;
             }
             
-            // Center image initially
-            if (containerRef.current) {
-              const container = containerRef.current;
-              const containerRect = container.getBoundingClientRect();
-              const initialScale = Math.min(
-                containerRect.width / img.width,
-                containerRect.height / img.height,
-                1
-              );
-              setScale(initialScale);
-              setPosition({
-                x: (containerRect.width - img.width * initialScale) / 2,
-                y: (containerRect.height - img.height * initialScale) / 2,
+            // Center image initially — defer so the tab layout has settled
+            // (measuring immediately can catch a mid-transition container)
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                if (cancelled || !containerRef.current) return;
+                const containerRect = containerRef.current.getBoundingClientRect();
+                const initialScale = Math.min(
+                  containerRect.width / img.width,
+                  containerRect.height / img.height,
+                  1
+                );
+                setScale(initialScale);
+                setPosition({
+                  x: (containerRect.width - img.width * initialScale) / 2,
+                  y: (containerRect.height - img.height * initialScale) / 2,
+                });
               });
-            }
+            });
             resolve();
           };
 
@@ -212,11 +215,37 @@ export function OrthomosaicViewer({
     handleReset();
   }, [handleReset]);
 
-  // Wheel zoom
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setScale((prev) => Math.max(0.05, Math.min(10, prev * delta)));
+  // Wheel zoom anchored at the cursor position.
+  // React attaches wheel listeners as passive, so we register a native
+  // non-passive listener to preventDefault (block page scroll) and zoom
+  // toward the cursor.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setScale((prevScale) => {
+        const nextScale = Math.max(0.05, Math.min(10, prevScale * (e.deltaY > 0 ? 0.9 : 1.1)));
+        if (nextScale === prevScale) return prevScale;
+
+        // Keep the point under the cursor stationary while zooming
+        setPosition((prevPos) => {
+          const rect = container.getBoundingClientRect();
+          const cx = e.clientX - rect.left;
+          const cy = e.clientY - rect.top;
+          const ratio = nextScale / prevScale;
+          return {
+            x: cx - (cx - prevPos.x) * ratio,
+            y: cy - (cy - prevPos.y) * ratio,
+          };
+        });
+        return nextScale;
+      });
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
   }, []);
 
   const handleDownload = useCallback(() => {
@@ -336,7 +365,6 @@ export function OrthomosaicViewer({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
       >
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
